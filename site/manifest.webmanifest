@@ -1,0 +1,21 @@
+{
+  "name": "SujogKhuji",
+  "short_name": "SujogKhuji",
+  "description": "Live jobs, internships, scholarships, hackathons and fellowships in Bangladesh and worldwide, with deadline tracking.",
+  "id": "./",
+  "start_url": "./#/discover",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#09090B",
+  "theme_color": "#09090B",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "My applications", "url": "./#/tracker", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -1,0 +1,71 @@
+name: Update listings and deploy to GitHub Pages
+
+on:
+  schedule:
+    - cron: "0 0,12 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Collect open opportunities from the web
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          PREVIOUS: ${{ steps.pages.outputs.base_url }}/data/opportunities.json
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            python scraper/collect.py --out site/data/opportunities.json --previous "$PREVIOUS" --no-search --search-if-empty
+          else
+            python scraper/collect.py --out site/data/opportunities.json --previous "$PREVIOUS"
+          fi
+
+      - name: Connect the site to the database
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
+        run: node scripts/build-config.mjs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

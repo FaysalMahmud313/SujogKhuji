@@ -1,0 +1,274 @@
+# SujogKhuji (সুযোগ খুঁজি)
+
+*"I search for opportunities."*
+
+**Live jobs, internships, scholarships, hackathons and fellowships in Bangladesh and worldwide, for
+freshers and experienced people.** The site searches the web by itself twice a day, keeps only
+openings that are still open, and links every listing to its source. People sign up with an email
+code, say whether they are a fresher or how many years they have worked, and see what fits them.
+
+Works in any browser on **Android and PC**, installs like an app, and has an English / বাংলা switch.
+Everything runs on free plans: **Vercel** (website and email function), **Supabase** (accounts and
+database), **GitHub Actions** (the twice-daily search), **Tavily** (web search) and your own
+**Gmail** (verification emails).
+
+---
+
+## What is inside
+
+| Part | What it does |
+|---|---|
+| Sign-up with a code | Email → 6-digit code sent from your Gmail → password → details about you. Sign-in by password or by code, forgot password, change email. |
+| Experience matching | Freshers see roles that ask for 0 years; experienced people see roles up to their years. Every card says what it asks for. |
+| Filters | Region, category, deadline, posted date, experience range, job type, work mode, country, education, field, organisation, funding, has pay, verified only, hide tracked. Filters live in the link, so a search can be shared or saved. |
+| Listing details | All extracted facts, source with a *Verified source* or *Check carefully* badge, share, add to calendar, track, report. |
+| Tracker | Steps with dates, status (Saved → Applied → Interview → Offer / Rejected), notes, list or board view, a 7-day strip, alerts 3 days before a step. |
+| Sync | Profile, applications and saved searches follow the account to every device. Changes made offline are sent later. Two devices editing the same application keep both sets of steps. |
+| Safety | Pages that ask applicants for money are dropped. Three reports hide a listing for everyone. See [Security](#security). |
+
+---
+
+## Set it up (about 40 minutes, once)
+
+You need free accounts at GitHub, Supabase, Vercel, Tavily and Cloudflare, plus a Gmail address.
+Do the steps in order; some values are copied from one place to the next.
+
+### 1. Local secrets file
+Copy `.env.example` to `.env` and fill it in as you go. `.env` is ignored by git and **is only used
+on your PC**. Vercel and GitHub never see it, so the same values are also typed into their
+dashboards in steps 5 and 7.
+
+Two values are random strings you invent yourself, at least 32 characters each:
+`MAIL_RPC_SECRET` and `INGEST_SECRET`. Any long random text works.
+
+### 2. Tavily key (web search)
+Sign up at **https://tavily.com** (free, no card), copy the key that starts with `tvly-` into
+`TAVILY_API_KEY`. The free plan gives 1,000 searches a month; the site uses 14 per update, twice a
+day (about 840 a month).
+
+### 3. Supabase (accounts and database)
+1. **https://supabase.com** → *New project*. Pick the region nearest your users (for example
+   Singapore).
+2. **SQL Editor → New query**, paste all of **`supabase/schema.sql`**, press *Run*. It can be run
+   again safely after every update of this project.
+3. In the same SQL Editor, store your two random secrets (the database keeps only a scrambled
+   copy). Use the values from your `.env`:
+   ```sql
+   select private.set_secret('ingest', 'PASTE-YOUR-INGEST_SECRET');
+   select private.set_secret('mail', 'PASTE-YOUR-MAIL_RPC_SECRET');
+   ```
+4. **Project Settings → API Keys** (and *Data API* for the address). Copy into `.env`:
+   - `SUPABASE_URL` = the project URL, like `https://abcdxyz.supabase.co`
+   - `SUPABASE_ANON_KEY` = the **publishable** key (`sb_publishable_…`) or the legacy **anon** key.
+     Never the secret / service_role key. This project does not use the secret key anywhere.
+5. **Authentication → Sign In / Providers → Email**
+   - *Enable Email provider*: on
+   - *Confirm email*: **on**
+   - *Secure email change*: **off** (the app confirms the new address with one code)
+   - *Email OTP length*: **6**, *Email OTP expiration*: **600** seconds
+   - *Minimum password length*: 8
+6. **Authentication → Rate Limits**: keep the defaults or lower them. Suggested: sign-ups and
+   sign-ins 30 per 5 minutes per IP, token verifications 30 per 5 minutes per IP, one code per
+   address every 60 seconds.
+
+Steps 3.7 (CAPTCHA), 3.8 (web addresses) and 3.9 (email hook) come after Vercel is live, in step 6.
+
+### 4. Gmail app password (sends the codes)
+1. In your Google account open **Security** and turn on **2-Step Verification**.
+2. Open **App passwords** (search for it in the account settings), create one named *SujogKhuji*.
+3. Put the address in `SMTP_USER` and the 16-letter password in `SMTP_APP_PASSWORD` (spaces are
+   fine). `SMTP_FROM_NAME` is the name people see, `MAIL_DAILY_CAP` stops sending before Gmail's
+   limit of about 500 a day.
+
+Treat the app password like a real password. If it is ever pasted somewhere public, delete it in
+Google and make a new one.
+
+### 5. Push to GitHub and deploy on Vercel
+```
+git init
+git add .
+git status
+```
+Check that **`.env` is not in the list**, then:
+```
+git commit -m "SujogKhuji"
+git branch -M main
+git remote add origin https://github.com/YOUR-USERNAME/sujogkhuji.git
+git push -u origin main
+```
+1. **https://vercel.com** → *Add New → Project* → import the repository. Leave the build settings
+   alone; `vercel.json` sets them.
+2. **Settings → Environment Variables**, for *Production* and *Preview*:
+
+   | Name | Value | Seen by visitors? |
+   |---|---|---|
+   | `SUPABASE_URL` | from step 3.4 | yes, it is public |
+   | `SUPABASE_ANON_KEY` | publishable / anon key | yes, it is public |
+   | `TURNSTILE_SITE_KEY` | from step 6.1 (add later) | yes, it is public |
+   | `SEND_EMAIL_HOOK_SECRET` | from step 6.4 (add later) | no |
+   | `SMTP_USER` | your Gmail address | no |
+   | `SMTP_APP_PASSWORD` | the app password | no |
+   | `SMTP_FROM_NAME` | `SujogKhuji` | no |
+   | `MAIL_DAILY_CAP` | `400` | no |
+   | `MAIL_RPC_SECRET` | your random string | no |
+
+3. *Deploy*. Your site is at `https://YOUR-PROJECT.vercel.app`. The deploy stops with a clear
+   message if a secret is put in a public slot.
+
+### 6. Finish in Cloudflare and Supabase
+1. **Cloudflare → Turnstile → Add widget** (free). Add your Vercel domain, mode *Managed*.
+   Copy the **site key** to Vercel as `TURNSTILE_SITE_KEY`, and keep the **secret key** for the
+   next line.
+2. Supabase **Authentication → Attack Protection**: turn on CAPTCHA, choose *Turnstile*, paste the
+   Turnstile **secret key**.
+3. Supabase **Authentication → URL Configuration**: *Site URL* = your Vercel address, and add the
+   same address under *Redirect URLs*. No wildcards.
+4. Supabase **Authentication → Auth Hooks → Send Email hook**: type *HTTPS*, URL
+   `https://YOUR-PROJECT.vercel.app/api/auth-email`, press *Generate secret*, save. Copy the secret
+   (it starts with `v1,whsec_`) to Vercel as `SEND_EMAIL_HOOK_SECRET`.
+5. In Vercel press **Redeploy** so the two new values are used.
+
+From now on Supabase creates each code and your Vercel function emails it from your Gmail.
+
+### 7. Turn on the twice-daily search
+On GitHub: **Settings → Secrets and variables → Actions**
+
+| Tab | Name | Value |
+|---|---|---|
+| Secrets | `TAVILY_API_KEY` | your `tvly-…` key |
+| Secrets | `INGEST_SECRET` | your random string |
+| Variables | `SUPABASE_URL` | the project URL |
+| Variables | `SUPABASE_ANON_KEY` | the publishable / anon key |
+
+Then **Actions → Update listings → Run workflow**. It runs by itself every day at 06:00 and 18:00
+Bangladesh time, saves open listings into the database and removes closed or reported ones. It
+also keeps the free Supabase project active.
+
+### 8. Try it
+Open the site, create an account with your own email, enter the code, set a password, fill in the
+details, track a listing, then sign in on your phone and check that it is there.
+
+---
+
+## Use it
+
+| On | How |
+|---|---|
+| **PC** | Open the site in Chrome or Edge and click **Install app** at the top. |
+| **Android** | Open in Chrome → menu **⋮ → Install app**. It opens full-screen and works offline with the last listings. |
+| **iPhone** | Open in Safari → **Share → Add to Home Screen**. |
+
+- **Without an account** everything stays in that browser. **Profile → Export / Import** moves it.
+- **Shared or cyber-café computer**: untick *Keep me signed in* and sign out when you finish.
+- **Language**: Profile → Appearance → English / বাংলা.
+
+---
+
+## How listings stay authentic
+
+There is no AI writing listings. Each one is a real web page found by the search, and the collector
+(`scraper/collect.py`) keeps it only if:
+
+- it is a specific opening, not a news story, tips article, search page or social-media post;
+- its **deadline** is today or later; pages with no deadline are dropped once they look old;
+- it does **not ask applicants for money**: registration, processing or application fees with an
+  amount, bKash / Nagad / Rocket payment numbers, "send money", "WhatsApp only" or "guaranteed
+  job / visa". Official sites that charge a normal exam fee are the one exception;
+- **funding**, **pay**, **experience**, job type, work mode, country, education, field and
+  organisation type are shown only when the page says so.
+
+Sources on an official or well-known site get a **Verified source** badge. Everything else says
+**Check carefully**, and web addresses written with look-alike letters are flagged. Anyone signed
+in can report a listing; three reports hide it for everyone.
+
+`python -m unittest discover -s scraper -p "test_*.py"` runs the collector's checks.
+
+---
+
+## Security
+
+- **Keys**: `.env` never leaves your PC. Only the Supabase address, the publishable key and the
+  Turnstile site key reach the browser. The build refuses anything else in those slots.
+- **No master key**: the collector and the email function can only call three narrow database
+  functions, each protected by its own secret. The Supabase secret key is not used at all.
+- **Database rules**: people can read and change only their own profile, applications and
+  reports, and only after their email is verified. Listings are read-only for everyone.
+- **Limits**: 200 applications per person, 20 steps each, 20 reports a day; one code per address
+  per minute, five an hour, and a daily cap for your Gmail.
+- **Email function**: accepts only requests signed by Supabase within the last five minutes, and
+  logs counts and outcomes, never codes, addresses or passwords.
+- **Browser**: scripts load only from your own site and Turnstile; the site cannot be shown inside
+  another site's frame; fonts are served from your own domain.
+- **Shared devices**: data saved without an account is moved into an account only if the person
+  agrees; another person's leftovers are removed; an ended session clears the device.
+
+---
+
+## Run it on your PC
+
+```
+npm install
+python scraper/collect.py --no-database
+python -m http.server 8765 --directory site
+```
+Then open http://127.0.0.1:8765. Run like this the site is in guest mode, because `site/config.js`
+is empty in git. To try accounts locally, install the Vercel CLI and run `vercel dev` after
+`npm run config:local` (it fills `site/config.js` from `.env`; run `git restore site/config.js`
+before you commit). `npm test` runs the email function's checks.
+
+---
+
+## Other hosts
+
+- **Netlify**: `netlify.toml` is ready. Import the repository, add the same environment variables,
+  and use `https://YOUR-SITE.netlify.app/api/auth-email` for the hook.
+- **GitHub Pages**: `docs/github-pages.yml` is a ready workflow for the website alone. Pages cannot
+  run the email function, so either keep that one function on Vercel or set Supabase's own
+  *SMTP Settings* instead of the hook.
+- **Your own domain**: add it in Vercel, then update *Site URL*, *Redirect URLs*, the hook URL and
+  the Turnstile widget. If Supabase itself gets a custom domain, add it to the two
+  `connect-src` lines in `vercel.json` and `netlify.toml`.
+
+Accounts and data stay in Supabase, so nothing is lost when the website moves.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| No code email arrives | Vercel → project → *Logs* → look for `auth_email`. `rejected`: the hook secret in Vercel and Supabase differ. `gate_unconfigured` or `gate_error`: `MAIL_RPC_SECRET`, `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing in Vercel, or step 3.3 was skipped. `smtp_failed`: the Gmail address or app password is wrong. |
+| *Too many codes requested* | One code per address per minute, five an hour. Wait and try again. |
+| Code is always "wrong" | The code works once and for 10 minutes. Check *Email OTP length* is 6. |
+| *The security check failed* | The Turnstile site key (Vercel) and secret key (Supabase) are from different widgets, or the domain is not listed in the widget. |
+| Profile says *Accounts are not switched on yet* | `SUPABASE_URL` / `SUPABASE_ANON_KEY` are missing in Vercel. Add them and redeploy. |
+| Deploy stops in the build step | A secret was put in a public variable, or the address is not `https://…`. The message says which. |
+| Action log shows `database: failed with HTTP 403` | `INGEST_SECRET` on GitHub differs from the one stored in step 3.3. |
+| Site says *No listings yet* | Run the *Update listings* action and read its log. `HTTP 401`: wrong Tavily key. `HTTP 432`: this month's free searches are used up. |
+| Updates stopped after a while | GitHub pauses schedules in repositories with no activity for 60 days. Push a change or run the action by hand. |
+| No *Install app* option | Install needs the https site. On Android use Chrome. |
+
+---
+
+## Project layout
+
+```
+opportunity_bd/
+├── site/                       The website
+│   ├── index.html, app.css, privacy.html, terms.html
+│   ├── theme.js, i18n.js, backend.js, app.js, discover.js, tracker.js, detail.js, auth.js, main.js
+│   ├── config.js               Database address, filled in when deploying (empty in git)
+│   ├── sw.js, manifest.webmanifest, icons/, fonts/
+│   └── data/                   bd_institutions.json, and opportunities.json for local runs
+├── api/auth-email.js           Vercel function: emails the code
+├── netlify/functions/          The same function for Netlify
+├── server/auth-email.js        The function's logic and its tests
+├── scraper/collect.py          Searches the web and saves listings (standard library only)
+├── scraper/test_collect.py     Checks for the collector
+├── scraper/queries.json        What to search for
+├── scripts/build-config.mjs    Runs on deploy: writes config.js and locks the security policy
+├── supabase/schema.sql         Tables, rules and functions; run once in Supabase
+├── vercel.json, netlify.toml   Hosting settings and security headers
+├── docs/github-pages.yml       Optional GitHub Pages workflow
+└── .github/workflows/update-listings.yml   Twice-daily search
+```

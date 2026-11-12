@@ -1,0 +1,41 @@
+name: Update listings
+
+on:
+  schedule:
+    - cron: "0 0,12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-listings
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the collector
+        run: python -m unittest discover -s scraper -p "test_*.py"
+
+      - name: Collect open opportunities and save them to the database
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: python scraper/collect.py --previous database --out site/data/opportunities.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opportunities
+          path: site/data/opportunities.json
+          retention-days: 7

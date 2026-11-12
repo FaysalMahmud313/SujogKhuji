@@ -1,0 +1,72 @@
+{
+  "searches": [
+    {
+      "q": "software engineer job circular Bangladesh fresh graduate apply {month} {year}",
+      "category": "job",
+      "region": "BD"
+    },
+    {
+      "q": "job circular Bangladesh application deadline {month} {year}",
+      "category": "job",
+      "region": "BD"
+    },
+    {
+      "q": "internship Bangladesh university students apply {month} {year}",
+      "category": "internship",
+      "region": "BD"
+    },
+    {
+      "q": "hackathon competition Bangladesh students registration {year}",
+      "category": "competition",
+      "region": "BD"
+    },
+    {
+      "q": "fully funded scholarship for Bangladeshi students {year} application deadline",
+      "category": "scholarship",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "fully funded scholarships international students {year} {next_year} deadline",
+      "category": "scholarship",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "internship for international students apply {month} {year} deadline",
+      "category": "internship",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "global hackathon {month} {year} registration open students",
+      "category": "competition",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "fully funded fellowship exchange program youth {year} apply",
+      "category": "program",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "graduate trainee program {year} applications open deadline",
+      "category": "job",
+      "region": "GLOBAL"
+    },
+    {
+      "q": "software engineer job Bangladesh 2-5 years experience apply {month} {year}",
+      "category": "job",
+      "region": "BD"
+    },
+    {
+      "q": "experienced professional job vacancy Bangladesh years of experience required {month} {year}",
+      "category": "job",
+      "region": "BD"
+    },
+    {
+      "q": "remote job 3+ years experience apply {month} {year} hiring",
+      "category": "job",
+      "region": "GLOBAL"
+    }
+  ],
+  "watch": [
+    "HENNGE"
+  ]
+}

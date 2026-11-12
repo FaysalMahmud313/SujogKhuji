@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>SujogKhuji</title>
+  <meta name="description" content="Live jobs, internships, scholarships, hackathons and fellowships in Bangladesh and worldwide, for freshers and experienced people. Track every deadline on your phone or PC." />
+  <meta name="theme-color" content="#09090B" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="SujogKhuji" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="app.css" />
+  <script src="theme.js"></script>
+  <script src="config.js" defer></script>
+  <script src="i18n.js" defer></script>
+  <script src="backend.js" defer></script>
+  <script src="app.js" defer></script>
+  <script src="discover.js" defer></script>
+  <script src="tracker.js" defer></script>
+  <script src="detail.js" defer></script>
+  <script src="auth.js" defer></script>
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n>Skip to content</a>
+  <div class="app">
+    <aside class="sidebar" aria-label="Main navigation" data-i18n-attr="aria-label">
+      <div class="brand">
+        <div class="logo" data-icon="logo"></div>
+        <div class="brand-name">Sujog<span>Khuji</span></div>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-label" data-i18n>Workspace</div>
+        <button type="button" class="nav-item" data-tab="discover"><span data-icon="compass"></span><span data-i18n>Discover</span><span class="count" id="countDiscover"></span></button>
+        <button type="button" class="nav-item" data-tab="tracker"><span data-icon="layers"></span><span data-i18n>My applications</span><span class="count" id="countTracker"></span></button>
+        <button type="button" class="nav-item" data-tab="import"><span data-icon="file"></span><span data-i18n>Add from text</span></button>
+        <div class="nav-label" data-i18n>You</div>
+        <button type="button" class="nav-item" data-tab="profile"><span data-icon="user"></span><span data-i18n>Profile &amp; settings</span></button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="engine" id="dataStatus"></div>
+        <button type="button" class="user-card" data-tab="profile" id="userCard"></button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="crumbs"><span>SujogKhuji</span><span data-icon="chevronRight" data-size="14"></span><b id="crumbPage">Discover</b></div>
+        <div class="mobile-brand">
+          <div class="logo" data-icon="logo"></div>
+          <div class="brand-name">Sujog<span>Khuji</span></div>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-sm btn-secondary install-btn" id="installBtn" hidden><span data-icon="download" data-size="14"></span><span data-i18n>Install app</span></button>
+          <button type="button" class="icon-btn bell" id="bellBtn" title="Upcoming deadlines" aria-label="Upcoming deadlines" data-i18n-attr="title,aria-label"><span data-icon="bell"></span><span class="pip"></span></button>
+          <button type="button" class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme" data-i18n-attr="title,aria-label"></button>
+          <button type="button" class="icon-btn signout-quick" data-action="sign-out" title="Sign out" aria-label="Sign out" data-i18n-attr="title,aria-label" hidden><span data-icon="logout"></span></button>
+        </div>
+      </header>
+      <div class="offline-bar" id="offlineBar" role="status" hidden><span data-icon="offline" data-size="15"></span><span data-i18n>You are offline. Changes are saved on this device and sync when you are back online.</span></div>
+
+      <main class="content" id="main" tabindex="-1">
+        <section class="page" id="page-discover" aria-labelledby="h-discover">
+          <div class="page-head">
+            <div>
+              <h1 id="h-discover" data-i18n>Discover</h1>
+              <p data-i18n>Jobs, internships, scholarships, hackathons and fellowships that are open right now, in Bangladesh and worldwide. Collected from the web every day, each linked to its source.</p>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="search">
+              <span class="sr-only" data-i18n>Search opportunities</span>
+              <span data-icon="search"></span>
+              <input class="input" id="fSearch" type="search" placeholder="Search: company, role, country, field" data-i18n-attr="placeholder" autocomplete="off" enterkeyhint="search" maxlength="80" />
+              <span class="kbd" aria-hidden="true">/</span>
+            </label>
+            <div class="seg" id="fRegion" role="group" aria-label="Region" data-i18n-attr="aria-label">
+              <button type="button" data-v="ALL" data-i18n>All</button>
+              <button type="button" data-v="BD" data-i18n>Bangladesh</button>
+              <button type="button" data-v="GLOBAL" data-i18n>Global</button>
+            </div>
+            <button type="button" class="btn btn-secondary filter-btn" id="filterBtn" aria-expanded="false" aria-controls="filterPanel"><span data-icon="sliders"></span><span data-i18n>Filters</span><span class="badge" id="filterCount" hidden></span></button>
+          </div>
+
+          <dialog class="filters" id="filterPanel" aria-labelledby="filterTitle">
+            <div class="filters-head">
+              <h2 id="filterTitle" data-i18n>Filters</h2>
+              <button type="button" class="icon-btn" data-action="close-filters" aria-label="Close filters" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
+            </div>
+            <div class="filters-body" id="filterBody"></div>
+            <div class="filters-foot">
+              <button type="button" class="btn btn-ghost" data-action="reset-filters" data-i18n>Clear all</button>
+              <button type="button" class="btn btn-primary" id="filterApply" data-action="close-filters">Show results</button>
+            </div>
+          </dialog>
+
+          <div class="subbar">
+            <div class="chips chips-scroll" id="fCat" role="group" aria-label="Category" data-i18n-attr="aria-label"></div>
+            <div class="switches">
+              <label class="inline-switch">
+                <button type="button" class="switch" id="fExp" role="switch" aria-checked="true" aria-label="Only show opportunities that match my experience" data-i18n-attr="aria-label"></button>
+                <span id="fExpLabel">For my experience</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="active-row" id="activeRow" hidden></div>
+          <div class="saved-row" id="savedRow" hidden></div>
+          <div id="liveStatus"></div>
+          <section class="rec" id="recRow" aria-label="Recommended for you" data-i18n-attr="aria-label" hidden></section>
+
+          <div class="result-row">
+            <div class="result-count" id="resultCount" role="status" aria-live="polite"></div>
+            <label class="sort-wrap">
+              <span class="muted" data-i18n>Sort by</span>
+              <span class="select-wrap">
+                <select class="select" id="fSort"></select>
+                <span data-icon="chevronDown" data-size="14"></span>
+              </span>
+            </label>
+          </div>
+          <div class="grid" id="discoverGrid"></div>
+          <div class="more-row" id="moreRow" hidden><button type="button" class="btn btn-secondary" id="moreBtn">Show more</button></div>
+        </section>
+
+        <section class="page" id="page-tracker" aria-labelledby="h-tracker">
+          <div class="page-head">
+            <div>
+              <h1 id="h-tracker" data-i18n>My applications</h1>
+              <p id="trackerIntro"></p>
+            </div>
+            <div class="actions">
+              <div class="seg" id="trackerView" role="group" aria-label="View" data-i18n-attr="aria-label">
+                <button type="button" data-v="list"><span data-icon="list" data-size="14"></span><span data-i18n>List</span></button>
+                <button type="button" data-v="board"><span data-icon="columns" data-size="14"></span><span data-i18n>Board</span></button>
+              </div>
+              <button type="button" class="btn btn-primary" data-tab="discover"><span data-icon="plus"></span><span data-i18n>Find opportunities</span></button>
+            </div>
+          </div>
+          <div class="stats" id="trackerStats"></div>
+          <div id="weekSlot"></div>
+          <div id="urgentSlot"></div>
+          <div class="app-grid" id="trackerList"></div>
+        </section>
+
+        <section class="page" id="page-import" aria-labelledby="h-import">
+          <div class="page-head">
+            <div>
+              <h1 id="h-import" data-i18n>Add from text</h1>
+              <p data-i18n>Paste a circular, job post or scholarship notice. The dates, steps and pay are pulled out right here in your browser; nothing is uploaded.</p>
+            </div>
+          </div>
+
+          <div class="split">
+            <div class="card">
+              <div class="panel-head">
+                <h2 data-i18n>Source text</h2>
+                <span class="engine-pill"><span data-icon="lock" data-size="14"></span><span data-i18n>Stays on your device</span></span>
+              </div>
+              <div class="panel-body">
+                <div class="examples">
+                  <span data-i18n>Try an example:</span>
+                  <button type="button" class="chip" data-sample="erasmus" data-i18n>Erasmus Mundus scholarship</button>
+                </div>
+                <label class="sr-only" for="rawInput" data-i18n>Opportunity text</label>
+                <textarea class="textarea" id="rawInput" placeholder="Paste the full text of the opportunity here…" data-i18n-attr="placeholder" maxlength="20000"></textarea>
+              </div>
+              <div class="panel-foot">
+                <span class="muted small" id="charCount"></span>
+                <button type="button" class="btn btn-primary" id="parseBtn"><span data-icon="sparkles"></span><span data-i18n>Extract details</span></button>
+              </div>
+            </div>
+
+            <div class="card" id="parseResult"></div>
+          </div>
+        </section>
+
+        <section class="page" id="page-profile" aria-labelledby="h-profile">
+          <div class="page-head">
+            <div>
+              <h1 id="h-profile" data-i18n>Profile &amp; settings</h1>
+              <p id="profileIntro"></p>
+            </div>
+          </div>
+
+          <div>
+            <div class="card profile-meter" id="profileMeter"></div>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>Account</h2>
+                <p data-i18n>Sign in to keep your profile and applications in sync on every device.</p>
+              </div>
+              <div class="card set-body" id="accountBox"></div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>Experience</h2>
+                <p data-i18n>Discover shows the jobs you qualify for.</p>
+              </div>
+              <div class="card set-body">
+                <div class="field">
+                  <span class="field-label" data-i18n>Your work experience</span>
+                  <div><div class="seg" id="pExpMode" role="group" aria-label="Your work experience" data-i18n-attr="aria-label">
+                    <button type="button" data-v="fresher" data-i18n>Fresher / student</button>
+                    <button type="button" data-v="experienced" data-i18n>Experienced</button>
+                  </div></div>
+                </div>
+                <label class="field" id="pYearsWrap">
+                  <span class="field-label" data-i18n>Years of experience</span>
+                  <input class="input years-input" id="pYears" type="number" min="1" max="50" step="1" inputmode="numeric" />
+                </label>
+              </div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>About you</h2>
+                <p data-i18n>Used to recommend opportunities. Only you can see it.</p>
+              </div>
+              <div class="card set-body">
+                <div class="cols-2">
+                  <label class="field">
+                    <span class="field-label" data-i18n>Name</span>
+                    <input class="input" id="pName" type="text" autocomplete="name" maxlength="60" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label" data-i18n>Field of interest</span>
+                    <span class="select-wrap">
+                      <select class="select" id="pField">
+                        <option value="any" data-i18n>Any field</option>
+                        <option value="cse" data-i18n>CSE / IT</option>
+                        <option value="engineering" data-i18n>Engineering</option>
+                        <option value="business" data-i18n>Business</option>
+                        <option value="health" data-i18n>Health</option>
+                        <option value="science" data-i18n>Science</option>
+                        <option value="arts" data-i18n>Arts &amp; social</option>
+                      </select>
+                      <span data-icon="chevronDown" data-size="14"></span>
+                    </span>
+                  </label>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="instInput" data-i18n>Institution</label>
+                  <div class="combo" id="instCombo">
+                    <span data-icon="search"></span>
+                    <input class="input" id="instInput" type="text" role="combobox" aria-expanded="false" aria-controls="instList" aria-autocomplete="list" autocomplete="off" maxlength="160" placeholder="Search by name or initials, e.g. BUET, NSU, AIUB" data-i18n-attr="placeholder" />
+                    <button class="icon-btn clear" id="instClear" type="button" aria-label="Clear institution" data-i18n-attr="aria-label"><span data-icon="x" data-size="14"></span></button>
+                    <div class="combo-list" id="instList" role="listbox"></div>
+                  </div>
+                  <span class="field-hint" id="instHint" data-i18n>Public &amp; private universities and National University colleges.</span>
+                </div>
+                <div class="cols-3">
+                  <label class="field">
+                    <span class="field-label" data-i18n>Department</span>
+                    <span class="select-wrap">
+                      <select class="select" id="pDept">
+                        <option value="CSE">CSE</option>
+                        <option value="EEE">EEE</option>
+                        <option value="ME">ME</option>
+                        <option value="CE">CE</option>
+                        <option value="BBA">BBA</option>
+                        <option value="Economics">Economics</option>
+                        <option value="Pharmacy">Pharmacy</option>
+                        <option value="Other" data-i18n>Other</option>
+                      </select>
+                      <span data-icon="chevronDown" data-size="14"></span>
+                    </span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label" data-i18n>Status</span>
+                    <span class="select-wrap">
+                      <select class="select" id="pStatus">
+                        <option value="1st Year" data-i18n>1st year</option>
+                        <option value="2nd Year" data-i18n>2nd year</option>
+                        <option value="3rd Year" data-i18n>3rd year</option>
+                        <option value="4th Year" data-i18n>4th year</option>
+                        <option value="Masters" data-i18n>Masters</option>
+                        <option value="Completed" data-i18n>Graduated</option>
+                      </select>
+                      <span data-icon="chevronDown" data-size="14"></span>
+                    </span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label" data-i18n>Graduation year</span>
+                    <span class="select-wrap">
+                      <select class="select" id="pGrad"></select>
+                      <span data-icon="chevronDown" data-size="14"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>Preferences</h2>
+                <p data-i18n>What Discover shows first.</p>
+              </div>
+              <div class="card set-body">
+                <div class="field">
+                  <span class="field-label" data-i18n>Default region</span>
+                  <div><div class="seg" id="pRegion" role="group" aria-label="Default region" data-i18n-attr="aria-label">
+                    <button type="button" data-v="ALL" data-i18n>Everywhere</button>
+                    <button type="button" data-v="BD" data-i18n>Bangladesh</button>
+                    <button type="button" data-v="GLOBAL" data-i18n>Global</button>
+                  </div></div>
+                </div>
+                <div class="field">
+                  <span class="field-label" data-i18n>Preferred work mode</span>
+                  <div><div class="seg" id="pMode" role="group" aria-label="Preferred work mode" data-i18n-attr="aria-label">
+                    <button type="button" data-v="any" data-i18n>Any</button>
+                    <button type="button" data-v="remote" data-i18n>Remote</button>
+                    <button type="button" data-v="hybrid" data-i18n>Hybrid</button>
+                    <button type="button" data-v="onsite" data-i18n>On-site</button>
+                  </div></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>Appearance</h2>
+                <p data-i18n>Applied instantly.</p>
+              </div>
+              <div class="card set-body">
+                <div class="field">
+                  <span class="field-label" data-i18n>Language</span>
+                  <div><div class="seg" id="pLang" role="group" aria-label="Language" data-i18n-attr="aria-label">
+                    <button type="button" data-v="en" lang="en">English</button>
+                    <button type="button" data-v="bn" lang="bn">বাংলা</button>
+                  </div></div>
+                </div>
+                <div class="field">
+                  <span class="field-label" data-i18n>Theme</span>
+                  <div><div class="seg" id="pTheme" role="group" aria-label="Theme" data-i18n-attr="aria-label">
+                    <button type="button" data-v="system"><span data-icon="monitor" data-size="14"></span><span data-i18n>System</span></button>
+                    <button type="button" data-v="light"><span data-icon="sun" data-size="14"></span><span data-i18n>Light</span></button>
+                    <button type="button" data-v="dark"><span data-icon="moon" data-size="14"></span><span data-i18n>Dark</span></button>
+                  </div></div>
+                </div>
+                <div class="field">
+                  <span class="field-label" data-i18n>Accent colour</span>
+                  <div class="swatches" id="pAccent"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
+                <h2 data-i18n>Your data</h2>
+                <p data-i18n>Keep a copy of your applications, or start over.</p>
+              </div>
+              <div class="card set-body">
+                <div class="switch-row">
+                  <div><b data-i18n>Export</b><small data-i18n>Download your applications and settings as a file.</small></div>
+                  <button class="btn btn-sm btn-secondary" id="exportBtn" type="button"><span data-icon="download" data-size="14"></span><span data-i18n>Export</span></button>
+                </div>
+                <div class="divider"></div>
+                <div class="switch-row">
+                  <div><b data-i18n>Import</b><small data-i18n>Load a file you exported on another device.</small></div>
+                  <label class="btn btn-sm btn-secondary"><span data-icon="upload" data-size="14"></span><span data-i18n>Import</span><input id="importFile" type="file" accept="application/json,.json" hidden /></label>
+                </div>
+                <div class="divider"></div>
+                <div class="switch-row">
+                  <div><b data-i18n>Clear everything</b><small data-i18n>Remove your applications, profile and settings from this browser.</small></div>
+                  <button class="btn btn-sm btn-secondary danger-text" id="clearBtn" type="button"><span data-icon="trash" data-size="14"></span><span data-i18n>Clear</span></button>
+                </div>
+              </div>
+            </section>
+
+            <p class="legal-links"><a href="privacy.html" data-i18n>Privacy</a><span class="sep">·</span><a href="terms.html" data-i18n>Terms</a></p>
+
+            <div class="save-bar">
+              <span id="saveHint"></span>
+              <button type="button" class="btn btn-primary" id="saveProfile"><span data-icon="check"></span><span data-i18n>Save changes</span></button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <nav class="tabbar" aria-label="Main navigation" data-i18n-attr="aria-label">
+      <button type="button" data-tab="discover"><span data-icon="compass" data-size="20"></span><span data-i18n>Discover</span></button>
+      <button type="button" data-tab="tracker"><span data-icon="layers" data-size="20"></span><span data-i18n>Applied</span></button>
+      <button type="button" data-tab="import"><span data-icon="file" data-size="20"></span><span data-i18n>Add</span></button>
+      <button type="button" data-tab="profile"><span data-icon="user" data-size="20"></span><span data-i18n>Profile</span></button>
+    </nav>
+  </div>
+
+  <dialog class="drawer" id="detail" aria-labelledby="detailTitle">
+    <button type="button" class="icon-btn drawer-close" data-action="close-detail" aria-label="Close details" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
+    <div class="drawer-body" id="detailBody"></div>
+  </dialog>
+
+  <dialog class="modal" id="flow" aria-labelledby="flowTitle">
+    <form class="modal-body" id="flowForm" novalidate>
+      <button type="button" class="icon-btn modal-close" id="flowClose" aria-label="Close" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
+      <div class="modal-logo logo" data-icon="logo"></div>
+      <ol class="stepper" id="flowSteps" hidden></ol>
+      <h2 id="flowTitle"></h2>
+      <p class="modal-sub" id="flowSub"></p>
+
+      <div class="flow-panel" data-panel="email" hidden>
+        <div class="seg auth-mode" id="flowMode" role="group" aria-label="Account" data-i18n-attr="aria-label">
+          <button type="button" data-v="signup" data-i18n>Create account</button>
+          <button type="button" data-v="signin" data-i18n>Sign in</button>
+        </div>
+        <label class="field">
+          <span class="field-label" data-i18n>Email</span>
+          <input class="input" id="flowEmail" type="email" autocomplete="email" inputmode="email" maxlength="254" spellcheck="false" autocapitalize="off" />
+        </label>
+        <label class="field" id="flowPassWrap">
+          <span class="field-label" data-i18n>Password</span>
+          <input class="input" id="flowPass" type="password" autocomplete="current-password" maxlength="72" />
+        </label>
+        <label class="tick" id="flowKeepWrap"><input type="checkbox" id="flowKeep" checked /><span><span data-i18n>Keep me signed in on this device</span><small data-i18n>Turn this off on a shared or cyber-café computer.</small></span></label>
+      </div>
+
+      <div class="flow-panel" data-panel="code" hidden>
+        <div class="code-boxes" id="codeBoxes" role="group" aria-label="6-digit code" data-i18n-attr="aria-label">
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="Digit 1" />
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Digit 2" />
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Digit 3" />
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Digit 4" />
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Digit 5" />
+          <input class="input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="Digit 6" />
+        </div>
+        <div class="code-foot">
+          <button type="button" class="link-btn" id="codeResend">Resend code</button>
+          <button type="button" class="link-btn" id="codeBack" data-i18n>Use a different email</button>
+        </div>
+        <p class="field-hint" data-i18n>No email? Check the spam folder, and make sure the address is right.</p>
+      </div>
+
+      <div class="flow-panel" data-panel="password" hidden>
+        <label class="field">
+          <span class="field-label" data-i18n>New password</span>
+          <input class="input" id="flowNewPass" type="password" autocomplete="new-password" minlength="8" maxlength="72" />
+          <span class="meter" id="passMeter" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="field-hint" id="passHint" aria-live="polite"></span>
+        </label>
+      </div>
+
+      <div class="flow-panel" data-panel="about" hidden>
+        <div class="field">
+          <span class="field-label" data-i18n>Your work experience</span>
+          <div class="choice-row" id="obExp" role="radiogroup" aria-label="Your work experience" data-i18n-attr="aria-label">
+            <button type="button" class="choice" role="radio" aria-checked="false" data-v="fresher"><b data-i18n>Fresher / student</b><small data-i18n>No full-time work experience yet</small></button>
+            <button type="button" class="choice" role="radio" aria-checked="false" data-v="experienced"><b data-i18n>Experienced</b><small data-i18n>I have worked for a year or more</small></button>
+          </div>
+        </div>
+        <label class="field" id="obYearsWrap" hidden>
+          <span class="field-label" data-i18n>Years of experience</span>
+          <input class="input years-input" id="obYears" type="number" min="1" max="50" step="1" value="2" inputmode="numeric" />
+        </label>
+        <div class="cols-2">
+          <label class="field">
+            <span class="field-label"><span data-i18n>Name</span> <span class="muted" data-i18n>(optional)</span></span>
+            <input class="input" id="obName" type="text" maxlength="60" autocomplete="name" />
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n>Field of interest</span>
+            <span class="select-wrap">
+              <select class="select" id="obField">
+                <option value="any" data-i18n>Any field</option>
+                <option value="cse" data-i18n>CSE / IT</option>
+                <option value="engineering" data-i18n>Engineering</option>
+                <option value="business" data-i18n>Business</option>
+                <option value="health" data-i18n>Health</option>
+                <option value="science" data-i18n>Science</option>
+                <option value="arts" data-i18n>Arts &amp; social</option>
+              </select>
+              <span data-icon="chevronDown" data-size="14"></span>
+            </span>
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label"><span data-i18n>Institution</span> <span class="muted" data-i18n>(optional)</span></span>
+          <input class="input" id="obInst" type="text" maxlength="160" autocomplete="organization" placeholder="University, college or company" data-i18n-attr="placeholder" />
+        </label>
+        <div class="cols-2">
+          <label class="field">
+            <span class="field-label" data-i18n>Status</span>
+            <span class="select-wrap">
+              <select class="select" id="obStatus">
+                <option value="1st Year" data-i18n>1st year</option>
+                <option value="2nd Year" data-i18n>2nd year</option>
+                <option value="3rd Year" data-i18n>3rd year</option>
+                <option value="4th Year" data-i18n>4th year</option>
+                <option value="Masters" data-i18n>Masters</option>
+                <option value="Completed" data-i18n>Graduated</option>
+              </select>
+              <span data-icon="chevronDown" data-size="14"></span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n>Graduation year</span>
+            <span class="select-wrap">
+              <select class="select" id="obGrad"></select>
+              <span data-icon="chevronDown" data-size="14"></span>
+            </span>
+          </label>
+        </div>
+        <div class="field">
+          <span class="field-label" data-i18n>Where do you want to work or study?</span>
+          <div><div class="seg seg-fill" id="obRegion" role="group" aria-label="Preferred region" data-i18n-attr="aria-label">
+            <button type="button" data-v="ALL" data-i18n>Everywhere</button>
+            <button type="button" data-v="BD" data-i18n>Bangladesh</button>
+            <button type="button" data-v="GLOBAL" data-i18n>Global</button>
+          </div></div>
+        </div>
+        <div class="field">
+          <span class="field-label" data-i18n>Preferred work mode</span>
+          <div><div class="seg seg-fill" id="obMode" role="group" aria-label="Preferred work mode" data-i18n-attr="aria-label">
+            <button type="button" data-v="any" data-i18n>Any</button>
+            <button type="button" data-v="remote" data-i18n>Remote</button>
+            <button type="button" data-v="hybrid" data-i18n>Hybrid</button>
+            <button type="button" data-v="onsite" data-i18n>On-site</button>
+          </div></div>
+        </div>
+      </div>
+
+      <div class="captcha-slot" id="captchaSlot" hidden></div>
+      <p class="form-msg" id="flowMsg" role="alert"></p>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary btn-block" id="flowSubmit"></button>
+        <button type="button" class="link-btn" id="flowAlt1" hidden></button>
+        <button type="button" class="link-btn" id="flowAlt2" hidden></button>
+        <p class="legal" id="flowLegal" hidden><span data-i18n>By creating an account you agree to the</span> <a href="terms.html" target="_blank" rel="noopener" data-i18n>Terms</a> <span data-i18n>and</span> <a href="privacy.html" target="_blank" rel="noopener" data-i18n>Privacy policy</a>.</p>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal-sm" id="moveDialog" aria-labelledby="moveTitle">
+    <form class="modal-body" method="dialog">
+      <h2 id="moveTitle" data-i18n>Move this browser's data?</h2>
+      <p class="modal-sub" id="moveText"></p>
+      <div class="modal-foot modal-foot-row">
+        <button type="submit" class="btn btn-primary" value="move" data-i18n>Move</button>
+        <button type="submit" class="btn btn-secondary" value="skip" data-i18n>Don't move</button>
+      </div>
+      <p class="field-hint" data-i18n>Choose "Don't move" on a shared computer, or if this data is not yours. It will be removed from this browser.</p>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal-sm" id="nameDialog" aria-labelledby="nameTitle">
+    <form class="modal-body" method="dialog">
+      <h2 id="nameTitle"></h2>
+      <label class="field">
+        <span class="sr-only" data-i18n>Name</span>
+        <input class="input" id="nameInput" type="text" maxlength="40" autocomplete="off" />
+      </label>
+      <div class="modal-foot modal-foot-row">
+        <button type="submit" class="btn btn-primary" value="ok" data-i18n>Save</button>
+        <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">SujogKhuji needs JavaScript to run.</p></noscript>
+</body>
+</html>

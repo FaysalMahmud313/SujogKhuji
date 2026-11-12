@@ -1,0 +1,17 @@
+{
+  "name": "sujogkhuji",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build-config.mjs",
+    "config:local": "node --env-file=.env scripts/build-config.mjs --local",
+    "test": "node --test server/"
+  },
+  "dependencies": {
+    "nodemailer": "^10.5.0"
+  }
+}
