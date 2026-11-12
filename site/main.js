@@ -238,19 +238,23 @@ async function clearAll() {
   location.reload();
 }
 
-let comboResults = [];
-let comboHl = 0;
 const shortInst = (name) => {
   const m = String(name).match(/\(([^)]+)\)\s*$/);
   return m ? m[1].split(' - ')[0] : String(name).split(',')[0].slice(0, 24);
 };
-async function loadInstitutions() {
-  if (S.institutions) return;
-  try {
-    const list = await (await fetch('data/bd_institutions.json')).json();
-    S.institutions = Array.isArray(list) ? list : [];
-    $('#instHint').textContent = `${S.institutions.length.toLocaleString()} public & private universities and National University colleges.`;
-  } catch { S.institutions = []; }
+let institutionsLoading = null;
+function loadInstitutions() {
+  if (S.institutions) return Promise.resolve();
+  if (!institutionsLoading) {
+    institutionsLoading = fetch('data/bd_institutions.json')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => {
+        S.institutions = Array.isArray(list) ? list : [];
+        if (S.institutions.length) $('#instHint').textContent = t('{n} public & private universities and National University colleges.', { n: S.institutions.length.toLocaleString() });
+      })
+      .catch(() => { institutionsLoading = null; });
+  }
+  return institutionsLoading;
 }
 function searchInstitutions(raw) {
   const all = S.institutions || [];
@@ -260,7 +264,7 @@ function searchInstitutions(raw) {
   const hits = [];
   for (const it of all) {
     const hay = it._hay || (it._hay = `${it.keys} ${it.name}`.toLowerCase());
-    if (!toks.every((t) => hay.includes(t))) continue;
+    if (!toks.every((tok) => hay.includes(tok))) continue;
     const acr = shortInst(it.name).toLowerCase();
     const score = acr === q ? 0 : it.name.toLowerCase().startsWith(q) ? 1 : hay.startsWith(q) ? 2 : 3;
     hits.push([score, it]);
@@ -268,38 +272,68 @@ function searchInstitutions(raw) {
   hits.sort((a, b) => a[0] - b[0]);
   return { items: hits.slice(0, 30).map((h) => h[1]), total: hits.length };
 }
-async function openCombo() {
-  await loadInstitutions();
-  const input = $('#instInput');
-  const { items, total } = searchInstitutions(input.value === S.profile.institution ? '' : input.value);
-  comboResults = items;
-  comboHl = 0;
-  const list = $('#instList');
-  list.innerHTML = items.length
-    ? items.map((it, i) => {
-        const m = it.name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-        return `<button type="button" class="combo-opt ${i === 0 ? 'hl' : ''}" role="option" data-i="${i}"><span>${esc(m ? m[1] : it.name)}</span>${m ? `<span class="acr">${esc(m[2])}</span>` : ''}</button>`;
-      }).join('') + `<div class="combo-foot">${total > items.length ? `Showing ${items.length} of ${total.toLocaleString()} — keep typing to narrow down` : plural(total, 'result')}</div>`
-    : `<div class="combo-empty">No institution matches “${esc(input.value)}”. You can still save what you typed.</div>`;
-  list.classList.add('open');
-  input.setAttribute('aria-expanded', 'true');
-}
-function closeCombo() {
-  $('#instList').classList.remove('open');
-  $('#instInput').setAttribute('aria-expanded', 'false');
-}
-function pickInstitution(i) {
-  const it = comboResults[i];
-  if (!it) return;
-  $('#instInput').value = it.name;
-  closeCombo();
-}
-function moveHl(delta) {
-  const opts = $$('#instList .combo-opt');
-  if (!opts.length) return;
-  comboHl = (comboHl + delta + opts.length) % opts.length;
-  opts.forEach((o, i) => o.classList.toggle('hl', i === comboHl));
-  opts[comboHl].scrollIntoView({ block: 'nearest' });
+
+const COMBOS = [];
+function closeCombo() { COMBOS.forEach((c) => c.close()); }
+
+function institutionCombo({ wrap, input, list, clear }) {
+  const box = $(wrap), field = $(input), menu = $(list), clearBtn = clear ? $(clear) : null;
+  let results = [];
+  let hl = 0;
+  let untouched = '';
+  const isOpen = () => menu.classList.contains('open');
+  const close = () => {
+    menu.classList.remove('open');
+    field.setAttribute('aria-expanded', 'false');
+    field.removeAttribute('aria-activedescendant');
+  };
+  const paint = () => {
+    const opts = $$('.combo-opt', menu);
+    opts.forEach((o, i) => { o.classList.toggle('hl', i === hl); o.setAttribute('aria-selected', String(i === hl)); });
+    if (opts[hl]) { field.setAttribute('aria-activedescendant', opts[hl].id); opts[hl].scrollIntoView({ block: 'nearest' }); }
+  };
+  const open = async () => {
+    await loadInstitutions();
+    if (document.activeElement !== field) return;
+    const { items, total } = searchInstitutions(field.value === untouched ? '' : field.value);
+    results = items;
+    hl = 0;
+    const id = menu.id;
+    menu.innerHTML = !S.institutions || !S.institutions.length
+      ? `<div class="combo-empty">${esc(t('Suggestions could not be loaded. You can still type the name.'))}</div>`
+      : items.length
+        ? items.map((it, i) => {
+            const m = it.name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+            return `<button type="button" tabindex="-1" class="combo-opt" role="option" id="${id}-${i}" data-i="${i}"><span>${esc(m ? m[1] : it.name)}</span>${m ? `<span class="acr">${esc(m[2])}</span>` : ''}</button>`;
+          }).join('') + `<div class="combo-foot">${esc(total > items.length ? t('Showing {a} of {b}. Keep typing to narrow it down.', { a: items.length, b: total.toLocaleString() }) : plural(total, 'result'))}</div>`
+        : `<div class="combo-empty">${esc(t('No institution matches “{q}”. You can still save what you typed.', { q: field.value }))}</div>`;
+    menu.classList.add('open');
+    field.setAttribute('aria-expanded', 'true');
+    paint();
+  };
+  const pick = (i) => {
+    const it = results[i];
+    if (!it) return;
+    field.value = it.name;
+    untouched = it.name;
+    close();
+  };
+  field.addEventListener('focus', () => { untouched = field.value; field.select(); open(); });
+  field.addEventListener('input', open);
+  field.addEventListener('blur', () => setTimeout(() => { if (!box.contains(document.activeElement)) close(); }, 120));
+  field.addEventListener('keydown', (e) => {
+    const shown = isOpen() && results.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!isOpen()) open(); else if (shown) { hl = (hl + 1) % results.length; paint(); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (shown) { hl = (hl - 1 + results.length) % results.length; paint(); } }
+    else if (e.key === 'Enter' && shown) { e.preventDefault(); pick(hl); }
+    else if (e.key === 'Escape' && isOpen()) { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Tab') close();
+  });
+  menu.addEventListener('mousedown', (e) => { e.preventDefault(); const o = e.target.closest('.combo-opt'); if (o) pick(Number(o.dataset.i)); });
+  if (clearBtn) clearBtn.addEventListener('click', () => { field.value = ''; untouched = ''; field.focus(); open(); });
+  const api = { close, open };
+  COMBOS.push(api);
+  return api;
 }
 
 const EASE = {
@@ -504,7 +538,7 @@ function bind() {
       }
       return;
     }
-    if (!e.target.closest('#instCombo')) closeCombo();
+    if (!e.target.closest('.combo')) closeCombo();
   });
   document.addEventListener('submit', (e) => {
     const form = e.target.closest('.add-step');
@@ -532,7 +566,6 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
     if (e.key === '/' && !typing && S.tab === 'discover' && !$('dialog[open]')) { e.preventDefault(); $('#fSearch').focus(); }
-    if (e.key === 'Escape') closeCombo();
   });
 
   $$('[data-sample]').forEach((b) => b.addEventListener('click', () => { $('#rawInput').value = SAMPLES[b.dataset.sample](); runParse(); }));
@@ -557,17 +590,8 @@ function bind() {
   $('#importFile').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value = ''; });
   $('#clearBtn').addEventListener('click', clearAll);
 
-  const inst = $('#instInput');
-  inst.addEventListener('focus', () => { inst.select(); openCombo(); });
-  inst.addEventListener('input', openCombo);
-  inst.addEventListener('keydown', (e) => {
-    const open = $('#instList').classList.contains('open');
-    if (e.key === 'ArrowDown') { e.preventDefault(); open ? moveHl(1) : openCombo(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); moveHl(-1); }
-    else if (e.key === 'Enter' && open) { e.preventDefault(); pickInstitution(comboHl); }
-  });
-  $('#instList').addEventListener('mousedown', (e) => { const o = e.target.closest('.combo-opt'); if (o) { e.preventDefault(); pickInstitution(Number(o.dataset.i)); } });
-  $('#instClear').addEventListener('click', () => { inst.value = ''; inst.focus(); openCombo(); });
+  institutionCombo({ wrap: '#instCombo', input: '#instInput', list: '#instList', clear: '#instClear' });
+  institutionCombo({ wrap: '#obInstCombo', input: '#obInst', list: '#obInstList', clear: '#obInstClear' });
 
   bindDiscover();
   bindTracker();

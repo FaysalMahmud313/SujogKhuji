@@ -488,7 +488,12 @@
         </div>
         <label class="field">
           <span class="field-label"><span data-i18n>Institution</span> <span class="muted" data-i18n>(optional)</span></span>
-          <input class="input" id="obInst" type="text" maxlength="160" autocomplete="organization" placeholder="University, college or company" data-i18n-attr="placeholder" />
+          <div class="combo" id="obInstCombo">
+            <span data-icon="search"></span>
+            <input class="input" id="obInst" type="text" role="combobox" aria-expanded="false" aria-controls="obInstList" aria-autocomplete="list" autocomplete="off" maxlength="160" placeholder="Search by name or initials, e.g. BUET, NSU, AIUB" data-i18n-attr="placeholder" />
+            <button class="icon-btn clear" id="obInstClear" type="button" aria-label="Clear institution" data-i18n-attr="aria-label"><span data-icon="x" data-size="14"></span></button>
+            <div class="combo-list" id="obInstList" role="listbox"></div>
+          </div>
         </label>
         <div class="cols-2">
           <label class="field">

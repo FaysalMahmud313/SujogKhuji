@@ -479,6 +479,12 @@ const I18N_BN = {
   '6-digit code': '৬ সংখ্যার কোড',
   'University, college or company': 'বিশ্ববিদ্যালয়, কলেজ বা প্রতিষ্ঠান',
   'Preferred region': 'পছন্দের অঞ্চল',
+  '{n} public & private universities and National University colleges.': '{n}টি সরকারি ও বেসরকারি বিশ্ববিদ্যালয় এবং জাতীয় বিশ্ববিদ্যালয়ের কলেজ।',
+  'Suggestions could not be loaded. You can still type the name.': 'তালিকা লোড করা যায়নি। আপনি নামটি লিখে দিতে পারেন।',
+  'Showing {a} of {b}. Keep typing to narrow it down.': '{b}টির মধ্যে {a}টি দেখানো হচ্ছে। আরও লিখে খোঁজ ছোট করুন।',
+  'No institution matches “{q}”. You can still save what you typed.': '“{q}” এর সঙ্গে কোনো প্রতিষ্ঠান মেলেনি। যা লিখেছেন তা-ই সেভ করতে পারেন।',
+  'result': 'টি ফলাফল',
+  'results': 'টি ফলাফল',
   'View': 'দেখুন',
 };
 

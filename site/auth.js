@@ -139,6 +139,7 @@ function fillAbout() {
   $('#obName').value = p.name || '';
   $('#obField').value = p.field || 'any';
   $('#obInst').value = p.institution || '';
+  loadInstitutions();
   $('#obStatus').value = p.studyStatus || '3rd Year';
   $('#obGrad').value = String(p.gradYear);
   $('#obYears').value = String(Math.max(1, userYears() || 2));
