@@ -7,12 +7,10 @@
   "trailingSlash": false,
   "functions": {
     "api/auth-email.js": {
-      "maxDuration": 10,
-      "memory": 256
+      "maxDuration": 10
     },
     "api/extract.js": {
-      "maxDuration": 60,
-      "memory": 512
+      "maxDuration": 60
     }
   },
   "headers": [
