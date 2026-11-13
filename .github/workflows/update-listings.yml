@@ -26,6 +26,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+
+      - name: Install the engine's packages
+        run: npm ci
 
       - name: Check the collector and the engine
         run: |
