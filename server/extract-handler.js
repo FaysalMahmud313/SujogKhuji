@@ -42,6 +42,19 @@ async function verifyUser(token, env, fetchImpl) {
 }
 
 const SAFE_WORD = /[^\p{L}\p{N} &.'-]/gu;
+const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'from', 'about', 'into']);
+const tokensOf = (s) => normalizeText(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+export const queryWords = (s) => [...new Set(tokensOf(s).filter((w) => (w.length >= 3 || /\d/.test(w)) && !STOP_WORDS.has(w)))];
+
+export function wordsFound(words, text) {
+  const tokens = new Set(tokensOf(text));
+  const list = [...tokens];
+  return words.filter((w) => tokens.has(w) || tokens.has(`${w}s`) || tokens.has(`${w}es`) || (w.length >= 5 && list.some((t) => t.startsWith(w)))).length;
+}
+
+export const pageMatches = (words, text) => wordsFound(words, text) >= Math.min(words.length, Math.max(2, Math.round(words.length * 0.7)));
+export const resultMatches = (words, r) => wordsFound(words, `${r.title || ''} ${r.org || ''} ${r.url || ''}`) >= Math.ceil(words.length / 2);
 
 async function findListing(name, env, fetchImpl) {
   const base = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
@@ -85,16 +98,18 @@ async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, no
   if (!live.ok) return { search_limited: live.blocked };
   const found = await searchWeb(`${input} apply deadline eligibility`, { env, store, fetchImpl, now, maxResults: 5, range: 'year', withContent: true, cacheSeconds: 86400, fetchPage });
   if (found.unavailable) return { unavailable: true, attempts: found.attempts, stage: 'search' };
-  const words = normalizeText(input).split(' ').filter((w) => w.length >= 3);
+  const words = queryWords(input);
   const ranked = found.results
-    .map((r) => ({ r, score: words.filter((w) => normalizeText(`${r.title} ${r.content}`).includes(w)).length }))
+    .map((r) => ({ r, text: `${r.title || ''} ${r.url || ''} ${r.content || ''} ${String(r.raw_content || '').slice(0, 4000)}` }))
+    .filter((x) => pageMatches(words, x.text))
+    .map((x) => ({ r: x.r, score: wordsFound(words, x.text) }))
     .sort((a, b) => b.score - a.score)
-    .filter((x) => x.score > 0)
     .slice(0, 3)
     .map(({ r }) => ({ url: r.url, title: r.title, text: r.raw_content || r.content }));
   if (!ranked.length) return { error: 'nothing_found' };
   const out = await extractOpportunity({ docs: ranked, hint: input, env, store, fetchImpl, now });
   if (out.attempts) out.attempts = [...found.attempts, ...out.attempts];
+  if (out.result && !resultMatches(words, out.result)) return { error: 'nothing_found', attempts: out.attempts };
   return out;
 }
 
@@ -120,7 +135,7 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   const store = deps.store || makeStore(env, fetchImpl);
   const burst = await store.take([{ bucket: `user:${user.id}:requests`, window: 'hour', limit: capFrom(env, 'USER_REQUESTS_HOURLY_CAP', 40) }]).catch(() => ({ ok: false, blocked: 'store_unavailable' }));
   if (!burst.ok) return burst.blocked === 'store_unavailable' ? fail(503, 'unavailable', 'AI extraction is temporarily unavailable. Please try again later.') : fail(429, 'rate_limited', 'You have made many requests in the last hour. Please wait a little.', { retry_after: 600 });
-  const key = hashKey('extract', mode, mode === 'text' ? normalizeText(input) : input.toLowerCase());
+  const key = hashKey('extract', 'v2', mode, mode === 'text' ? normalizeText(input) : input.toLowerCase());
   const ttl = mode === 'name' ? 86400 : 7 * 86400;
   const cached = await store.cacheGet('extract', key, ttl).catch(() => null);
   if (cached && cached.result) { log('cache', { mode }); return reply(200, { result: cached.result, mode, cached: true }); }

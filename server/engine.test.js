@@ -5,7 +5,7 @@ import { searchWeb, classifySearch, dedupeResults } from './engine/search.js';
 import { aiProviders, classifyAi, rejectedPaidModels } from './engine/ai.js';
 import { datesIn, extractOpportunity, quoteIn, validateShape, verifyFacts } from './engine/extract.js';
 import { memoryStore } from './engine/store.js';
-import { handleExtract, detectMode } from './extract-handler.js';
+import { handleExtract, detectMode, pageMatches, queryWords, resultMatches } from './extract-handler.js';
 
 const NOW = Date.UTC(2026, 10, 13, 6, 0, 0);
 const now = () => NOW;
@@ -378,6 +378,30 @@ test('a new name is searched live, then read by AI', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body.result.org, 'Acme Bank PLC');
   assert.deepEqual(net.hosts().sort(), ['api.groq.com', 'api.tavily.com', 'db.test']);
+});
+
+test('a name search ignores pages that share only common words with it', async () => {
+  const hk = { ...GOOD, title: { value: 'Student-Athlete Learning Support and Admission', quote: null, source: 1 }, organization: { value: 'City University of Hong Kong', quote: null, source: 1 } };
+  const net = fakeNet({
+    ...authRoutes(),
+    'api.tavily.com': () => ({ json: { results: [
+      { url: 'https://www.cityu.edu.hk/salsa', title: 'SALSA - City University of Hong Kong', content: 'City University student athletes admission', raw_content: 'Apply by 30 November 2026 for admission in Hong Kong.' },
+      { url: 'https://example.org/fest', title: 'Annual university festival', content: 'City university fest in Hong Kong', raw_content: 'Our yearly festival of music and arts.' },
+    ] } }),
+    'api.groq.com': aiReply(hk),
+  });
+  const res = await call(net, { input: 'city university cse fest bangladesh' });
+  assert.equal(res.status, 404);
+  assert.ok(!net.hosts().includes('api.groq.com'));
+});
+
+test('a name match needs most of the words, as whole words', () => {
+  const words = queryWords('City University CSE Fest Bangladesh');
+  assert.deepEqual(words, ['city', 'university', 'cse', 'fest', 'bangladesh']);
+  assert.equal(pageMatches(words, 'City University of Hong Kong, a manifest of courses'), false);
+  assert.equal(pageMatches(words, 'CSE Fest 2026 at City University, Dhaka, Bangladesh'), true);
+  assert.equal(pageMatches(queryWords('Chevening Scholarship 2027'), 'Chevening Scholarships 2027-2028 now open'), true);
+  assert.equal(resultMatches(words, { title: 'Student-Athlete Learning Support', org: 'City University of Hong Kong', url: 'https://cityu.edu.hk' }), false);
 });
 
 test('the daily live-search cap and an AI outage give friendly messages', async () => {

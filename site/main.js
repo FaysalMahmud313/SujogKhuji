@@ -122,6 +122,7 @@ async function runParse() {
       S.parsed = { ...localParse(raw), engine: 'rules' };
       toast(`${e.message} ${t('Showing a basic reading instead.')}`, { tone: 'warn', timeout: 8000 });
     } else {
+      S.parsed = null;
       toast(e.message, { tone: 'warn', timeout: 8000 });
     }
   } finally {
