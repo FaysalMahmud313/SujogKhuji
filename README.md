@@ -25,6 +25,8 @@ database), **GitHub Actions** (the twice-daily search), **Tavily** (web search) 
 | Tracker | Steps with dates, status (Saved → Applied → Interview → Offer / Rejected), notes, list or board view, a 7-day strip, alerts 3 days before a step. |
 | Sync | Profile, applications and saved searches follow the account to every device. Changes made offline are sent later. Two devices editing the same application keep both sets of steps. |
 | Safety | Pages that ask applicants for money are dropped. Three reports hide a listing for everyone. See [Security](#security). |
+| Live search | Tavily first, then Serper, then Exa, one at a time. A provider that runs out of free searches rests until its quota resets. |
+| AI extraction | The Add page reads pasted text, a link or just an opportunity name. The twice-daily search also AI-checks new listings. Free AI models only (Groq, Google Gemini, OpenRouter `:free`). Every fact must be backed by an exact quote from the source, or it is left empty. |
 
 ---
 
@@ -40,6 +42,9 @@ dashboards in steps 5 and 7.
 
 Two values are random strings you invent yourself, at least 32 characters each:
 `MAIL_RPC_SECRET` and `INGEST_SECRET`. Any long random text works.
+
+The `..._CAP` lines in `.env.example` are safety limits. Leave them as they are unless you know a
+provider's free limit changed; they stop the site before a free quota runs out.
 
 ### 2. Tavily key (web search)
 Sign up at **https://tavily.com** (free, no card), copy the key that starts with `tvly-` into
@@ -144,9 +149,53 @@ Then **Actions → Update listings → Run workflow**. It runs by itself every d
 Bangladesh time, saves open listings into the database and removes closed or reported ones. It
 also keeps the free Supabase project active.
 
-### 8. Try it
+### 8. Free AI and extra search providers (optional but recommended)
+Everything below is free. Add only the ones you want; the site skips any provider without a key.
+**Never add a card or buy credits on these accounts**: that is what keeps your bill at zero.
+
+| Provider | Where to get the key | Rules for zero billing |
+|---|---|---|
+| **Groq** (AI, recommended) | console.groq.com → *API Keys* | Stay on the *Free* plan. Do not upgrade to *Developer* or add a card. When the free daily limit is used up Groq refuses requests; it never charges. |
+| **OpenRouter** (AI) | openrouter.ai → *Keys* | Keep the balance at $0 and do not enable auto top-up. The site only ever calls model names ending in `:free`; any other name in `OPENROUTER_MODELS` is ignored. Free models allow 50 requests a day. |
+| **Google Gemini** (AI) | aistudio.google.com → *Get API key* | Make the key in a Google Cloud project **with billing turned off**. With billing on, Gemini charges for every call. Only after checking, set `GEMINI_BILLING_DISABLED=yes`; without it the site never calls Gemini. Free-tier prompts may be used by Google to improve its models. |
+| **Serper** (search fallback 1) | serper.dev → *API key* | 2,500 free searches, once. Do not buy credits. When they run out Serper refuses requests. |
+| **Exa** (search fallback 2) | dashboard.exa.ai → *API keys* | Uses free signup credits. In *Billing*, keep **auto recharge off** and add no card. When credits run out Exa refuses requests (HTTP 402). |
+
+Not used on purpose:
+- **Cerebras**: no lasting free tier any more, only short trial credits.
+- **GitHub Models**: retired, and its paid opt-in bills all usage.
+- The proxy projects LiteLLM, freellmapi, free-llm-proxy-router and freelm: each needs a separate always-on server and holds your keys. A small router inside this project does the same job.
+
+Add each key in three places: `.env` (for local runs), **Vercel → Environment Variables** (for
+the Add page) and **GitHub → Secrets** (for the twice-daily search). On GitHub,
+`GEMINI_BILLING_DISABLED` and `OPENROUTER_MODELS` go on the *Variables* tab, not *Secrets*.
+
+| Name | Vercel | GitHub |
+|---|---|---|
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY` | yes | Secrets |
+| `GEMINI_BILLING_DISABLED`, `OPENROUTER_MODELS` | yes | Variables |
+| `TAVILY_API_KEY`, `SERPER_API_KEY`, `EXA_API_KEY` | yes | Secrets |
+
+Then re-run **`supabase/schema.sql`** in the SQL Editor. It adds the tables for caches, usage
+counters and provider cooldowns; until it is run, AI extraction and the extra search providers
+stay switched off, so nothing can be overused. Redeploy on Vercel afterwards.
+
+**How much it can do for free.** These numbers are rough and change when providers change their
+free plans. The whole site shares them; they are not per user:
+- **Twice-daily search:** about 840 Tavily searches a month, plus AI checks of up to 25 new listings per run.
+- **Add page, live web search by name:** at most 40 a day for the whole site, 10 per person.
+- **Add page, AI reading:** 10 an hour and 30 a day per person, and about 600 a day for the whole site.
+
+When a limit is reached, people see a short "temporarily unavailable" message. Pasted text then
+falls back to the old in-browser reading.
+
+To see usage, run `select * from private.engine_usage;` in the Supabase SQL Editor.
+
+### 9. Try it
 Open the site, create an account with your own email, enter the code, set a password, fill in the
-details, track a listing, then sign in on your phone and check that it is there.
+details, track a listing, then sign in on your phone and check that it is there. On the Add page
+paste an announcement, a link and a name, and hover over a value in the result to see the quote it
+came from.
 
 ---
 
@@ -166,7 +215,7 @@ details, track a listing, then sign in on your phone and check that it is there.
 
 ## How listings stay authentic
 
-There is no AI writing listings. Each one is a real web page found by the search, and the collector
+AI never writes listings. Each one is a real web page found by the search, and the collector
 (`scraper/collect.py`) keeps it only if:
 
 - it is a specific opening, not a news story, tips article, search page or social-media post;
@@ -176,6 +225,13 @@ There is no AI writing listings. Each one is a real web page found by the search
   job / visa". Official sites that charge a normal exam fee are the one exception;
 - **funding**, **pay**, **experience**, job type, work mode, country, education, field and
   organisation type are shown only when the page says so.
+
+When a free AI model is available, each new listing is also read by it. The engine keeps a fact
+only if the model quotes the exact sentence that states it, and the quote really supports the
+value: the date in the quote must match the deadline, a "fully funded" claim must say so, pay must
+contain the same numbers. Everything else is thrown away, so the AI cannot invent deadlines,
+funding or pay. Listings the AI marks as closed, not a real opening or asking for money are
+removed. The quotes are stored with the listing.
 
 Sources on an official or well-known site get a **Verified source** badge. Everything else says
 **Check carefully**, and web addresses written with look-alike letters are flagged. Anyone signed
@@ -201,6 +257,23 @@ in can report a listing; three reports hide it for everyone.
   another site's frame; fonts are served from your own domain.
 - **Shared devices**: data saved without an account is moved into an account only if the person
   agrees; another person's leftovers are removed; an ended session clears the device.
+- **Zero billing**:
+  - Only free providers are in the code.
+  - OpenRouter is limited to `:free` model names.
+  - Gemini stays off until you confirm billing is off.
+  - Our own counters stop each provider below its free limit.
+  - If the usage database cannot be reached, AI and the extra search providers switch off instead of guessing.
+  - A provider that says its quota is used up rests until the quota resets, and nothing paid is ever tried instead.
+- **AI safety**:
+  - Web pages are treated as data. The model is told never to follow instructions inside them.
+  - Its reply must match a strict JSON schema, and every fact is checked against the source text.
+  - All AI and search keys stay on the server; the browser only talks to `/api/extract`.
+  - That endpoint needs a verified, signed-in user.
+- **Link reading**:
+  - Only `http`/`https` on normal ports, no usernames or passwords in the link, and no private, local or cloud-metadata addresses.
+  - Addresses are checked again at connection time, which defeats DNS tricks.
+  - At most 3 redirects, each one re-checked, and never from https down to http.
+  - 8-second timeout, 1.5 MB limit, web pages and plain text only.
 
 ---
 
@@ -214,7 +287,7 @@ python -m http.server 8765 --directory site
 Then open http://127.0.0.1:8765. Run like this the site is in guest mode, because `site/config.js`
 is empty in git. To try accounts locally, install the Vercel CLI and run `vercel dev` after
 `npm run config:local` (it fills `site/config.js` from `.env`; run `git restore site/config.js`
-before you commit). `npm test` runs the email function's checks.
+before you commit). `npm test` runs the checks for the email function and for the search and AI engine; none of them call a real provider.
 
 ---
 
@@ -247,6 +320,11 @@ Accounts and data stay in Supabase, so nothing is lost when the website moves.
 | Site says *No listings yet* | Run the *Update listings* action and read its log. `HTTP 401`: wrong Tavily key. `HTTP 432`: this month's free searches are used up. |
 | Updates stopped after a while | GitHub pauses schedules in repositories with no activity for 60 days. Push a change or run the action by hand. |
 | No *Install app* option | Install needs the https site. On Android use Chrome. |
+| Add page says *AI extraction is temporarily unavailable* | Either every free AI quota is used up for today (it comes back tomorrow), no AI key is set in Vercel, or `schema.sql` was not re-run after this update. Vercel → *Logs* → look for `extract`; `tried` lists each provider and why it was skipped. |
+| Add page: *Live web search has reached today's free limit* | The site-wide daily cap for name searches (`LIVE_SEARCH_DAILY_CAP`) is reached. Paste the text or a link instead. |
+| Action log shows `search none … tavily:quota, serper:not_configured` | Tavily's monthly free searches are used up and no fallback key is set. Add `SERPER_API_KEY` or `EXA_API_KEY`, or wait for next month. |
+| Action log shows `store_unavailable` | `schema.sql` was not re-run after this update, or `INGEST_SECRET` does not match. |
+| Action log shows `ai: no free AI provider configured` | No `GROQ_API_KEY`/`OPENROUTER_API_KEY` secret (or Gemini without `GEMINI_BILLING_DISABLED=yes`). Listings are still collected with the rule-based checks. |
 
 ---
 
@@ -261,8 +339,12 @@ opportunity_bd/
 │   ├── sw.js, manifest.webmanifest, icons/, fonts/
 │   └── data/                   bd_institutions.json, and opportunities.json for local runs
 ├── api/auth-email.js           Vercel function: emails the code
-├── netlify/functions/          The same function for Netlify
-├── server/auth-email.js        The function's logic and its tests
+├── api/extract.js              Vercel function: the Add page's AI extraction
+├── netlify/functions/          The same functions for Netlify
+├── server/auth-email.js        The email function's logic and its tests
+├── server/extract-handler.js   Sign-in check, limits, caching and the three input types
+├── server/engine/              Shared engine: safe page fetching, Tavily → Serper → Exa, free AI router, evidence checks
+├── scripts/engine.mjs          Lets the Python collector use the same engine
 ├── scraper/collect.py          Searches the web and saves listings (standard library only)
 ├── scraper/test_collect.py     Checks for the collector
 ├── scraper/queries.json        What to search for

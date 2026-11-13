@@ -159,7 +159,7 @@
           <div class="page-head">
             <div>
               <h1 id="h-import" data-i18n>Add from text</h1>
-              <p data-i18n>Paste a circular, job post or scholarship notice. The dates, steps and pay are pulled out right here in your browser; nothing is uploaded.</p>
+              <p data-i18n>Paste a circular or job post, a link to one, or just the name of an opportunity. When you are signed in, free AI reads it and checks every detail against the source.</p>
             </div>
           </div>
 
@@ -167,7 +167,7 @@
             <div class="card">
               <div class="panel-head">
                 <h2 data-i18n>Source text</h2>
-                <span class="engine-pill"><span data-icon="lock" data-size="14"></span><span data-i18n>Stays on your device</span></span>
+                <span class="engine-pill"><span data-icon="lock" data-size="14"></span><span id="sourcePill">Stays on your device</span></span>
               </div>
               <div class="panel-body">
                 <div class="examples">
@@ -175,7 +175,7 @@
                   <button type="button" class="chip" data-sample="erasmus" data-i18n>Erasmus Mundus scholarship</button>
                 </div>
                 <label class="sr-only" for="rawInput" data-i18n>Opportunity text</label>
-                <textarea class="textarea" id="rawInput" placeholder="Paste the full text of the opportunity here…" data-i18n-attr="placeholder" maxlength="20000"></textarea>
+                <textarea class="textarea" id="rawInput" placeholder="Paste the announcement text, a link, or an opportunity name…" data-i18n-attr="placeholder" maxlength="20000"></textarea>
               </div>
               <div class="panel-foot">
                 <span class="muted small" id="charCount"></span>

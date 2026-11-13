@@ -35,15 +35,19 @@
     <h2>What we do not store</h2>
     <ul>
       <li>Your password. It is kept only as a one-way hash by our sign-in provider.</li>
-      <li>Text you paste into "Add from text". It is read inside your browser and never uploaded.</li>
       <li>Your browsing on other sites, your location or your contacts.</li>
     </ul>
+
+    <h2>Add from text</h2>
+    <p>Without an account, text you paste is read inside your browser and never uploaded. When you are signed in, the text, link or name you enter is sent to our server, which may search the web for it and asks a free AI service to read it. The result is kept for up to 7 days so the same request is not processed twice. Free AI services may use what they receive to improve their models, so do not paste personal information such as your phone number or national ID.</p>
 
     <h2>Who helps us run the site</h2>
     <ul>
       <li><b>Supabase</b> stores accounts and the database.</li>
       <li><b>Our hosting provider</b> serves the website and sends the verification emails through our mailbox.</li>
       <li><b>Cloudflare Turnstile</b>, when switched on, checks that sign-ups come from people and not bots.</li>
+      <li><b>Web search services</b> (Tavily, Serper and Exa) find opportunity pages. They receive search words, never your account details.</li>
+      <li><b>Free AI services</b> (Groq, Google Gemini and OpenRouter, whichever is available) read announcements and pages to pull out details. They receive the announcement text, never your account details.</li>
     </ul>
     <p>Listings are found by an automatic web search and link to other websites. Those sites have their own privacy rules.</p>
 

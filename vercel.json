@@ -9,6 +9,10 @@
     "api/auth-email.js": {
       "maxDuration": 10,
       "memory": 256
+    },
+    "api/extract.js": {
+      "maxDuration": 60,
+      "memory": 512
     }
   },
   "headers": [

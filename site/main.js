@@ -57,15 +57,97 @@ function localParse(raw) {
   return { title: title.slice(0, 80), org: org.slice(0, 50), region, category, funding, pay: sal ? sal[1].trim() : null, deadline, steps_json: steps };
 }
 
-function runParse() {
+const inputKind = (raw) => {
+  const v = raw.trim();
+  if (/^https?:\/\/\S+$/i.test(v)) return 'url';
+  if (!/\n/.test(v) && v.length <= 150 && v.split(/\s+/).length <= 16) return 'name';
+  return 'text';
+};
+const aiReady = () => Backend.enabled && signedIn();
+const RED_FLAGS = ['asks_for_payment', 'whatsapp_only', 'guaranteed_result'];
+
+function fromAi(r, raw, kind) {
+  const rules = kind === 'text' ? localParse(raw) : null;
+  return {
+    title: r.title || (rules && rules.title) || t('Opportunity'),
+    org: r.org || '',
+    region: r.region || (rules && rules.region) || 'GLOBAL',
+    category: CAT[r.category] ? r.category : (rules && rules.category) || 'job',
+    funding: FUNDING[r.funding] ? r.funding : null,
+    pay: r.pay || null,
+    deadline: isIso(r.deadline) ? r.deadline : null,
+    steps_json: (Array.isArray(r.steps_json) ? r.steps_json : []).filter((s) => s && isIso(s.d)).map((s) => ({ t: String(s.t || 'Step').slice(0, 60), d: s.d })),
+    country: r.country || null,
+    exp_min: Number.isInteger(r.exp_min) ? r.exp_min : null,
+    exp_max: Number.isInteger(r.exp_max) ? r.exp_max : null,
+    level: r.level || null,
+    job_type: JOB_TYPE[r.job_type] ? r.job_type : null,
+    work_mode: WORK_MODE[r.work_mode] ? r.work_mode : null,
+    education: EDUCATION[r.education] ? r.education : null,
+    field: FIELD[r.field] ? r.field : null,
+    org_type: ORG_TYPE[r.org_type] ? r.org_type : null,
+    url: safeUrl(r.url) ? r.url : '',
+    summary: '',
+    evidence: r.evidence && typeof r.evidence === 'object' ? r.evidence : {},
+    warnings: Array.isArray(r.warnings) ? r.warnings.filter((w) => typeof w === 'string').slice(0, 6) : [],
+    engine: r.provider === 'listing' ? 'listing' : 'ai',
+  };
+}
+
+function setParsing(on) {
+  S.parsing = on;
+  const btn = $('#parseBtn');
+  btn.disabled = on;
+  btn.classList.toggle('is-busy', on);
+  btn.setAttribute('aria-busy', String(on));
+  $('#rawInput').readOnly = on;
+}
+
+async function runParse() {
+  if (S.parsing) return;
   const raw = $('#rawInput').value.trim();
-  if (!raw) { toast(t('Paste some text first'), { tone: 'warn' }); $('#rawInput').focus(); return; }
-  S.parsed = localParse(raw);
-  renderImport();
+  if (!raw) { toast(t('Paste some text, a link or an opportunity name first.'), { tone: 'warn' }); $('#rawInput').focus(); return; }
+  const kind = inputKind(raw);
+  if (!aiReady()) {
+    if (kind === 'text') { S.parsed = { ...localParse(raw), engine: 'rules' }; renderImport(); return; }
+    toast(t(kind === 'url' ? 'Sign in to read a link with AI. You can also paste the text of the announcement.' : 'Sign in to look up an opportunity by name. You can also paste the text of the announcement.'), Backend.enabled ? { tone: 'warn', action: t('Sign in'), onAction: () => openAuth('signin'), timeout: 7000 } : { tone: 'warn', timeout: 7000 });
+    return;
+  }
+  setParsing(true);
+  try {
+    const res = await Backend.callApi('/api/extract', { mode: kind, input: raw });
+    S.parsed = fromAi(res.result || {}, raw, kind);
+  } catch (e) {
+    if (kind === 'text') {
+      S.parsed = { ...localParse(raw), engine: 'rules' };
+      toast(`${e.message} ${t('Showing a basic reading instead.')}`, { tone: 'warn', timeout: 8000 });
+    } else {
+      toast(e.message, { tone: 'warn', timeout: 8000 });
+    }
+  } finally {
+    setParsing(false);
+    renderImport();
+  }
+}
+
+const evidenceTip = (p, field) => {
+  const e = p.evidence && p.evidence[field];
+  return e && e.status === 'verified' && e.quote ? ` title="${esc(`“${e.quote}”${e.url ? ` — ${e.url}` : ''}`)}"` : '';
+};
+
+function parsedNotice(p) {
+  if (p.engine === 'rules') return t('Pulled out with simple rules. Check the fields against the original before tracking it.');
+  if (p.engine === 'listing') return t('This opportunity is already in Discover. These details come from that listing.');
+  const w = p.warnings || [];
+  if (w.some((x) => RED_FLAGS.includes(x))) return t('Warning: this announcement asks for money, uses WhatsApp only or promises a guaranteed result. Real employers and scholarships never charge you to apply.');
+  if (w.includes('expired')) return t('The deadline written in the source has already passed.');
+  if (w.includes('not_an_opening')) return t('This does not look like one specific opening. Check the source before tracking it.');
+  return t('Every value below was checked against the source text. Hover over a value to see the quote. Anything not written in the source is left empty.');
 }
 
 function renderImport() {
   $('#charCount').textContent = t('{n} characters', { n: $('#rawInput').value.length.toLocaleString() });
+  $('#sourcePill').textContent = aiReady() ? t('Sent to a free AI service to read') : t('Stays on your device');
   const box = $('#parseResult');
   const p = S.parsed;
   if (!p) {
@@ -78,20 +160,20 @@ function renderImport() {
     return;
   }
   box.innerHTML = `
-    <div class="panel-head"><h2>${esc(t('Result'))}</h2><span class="engine-pill">${icon('check', 14)}${esc(t('Read in your browser'))}</span></div>
+    <div class="panel-head"><h2>${esc(t('Result'))}</h2><span class="engine-pill">${icon(p.engine === 'rules' ? 'check' : 'sparkles', 14)}${esc(p.engine === 'rules' ? t('Read in your browser') : p.engine === 'listing' ? t('From Discover') : t('Read by AI, checked against the source'))}</span></div>
     <div class="panel-body">
-      <div class="notice">${icon('info', 15)}<span>${esc(t('Pulled out with simple rules. Check the fields against the original before tracking it.'))}</span></div>
+      <div class="notice">${icon((p.warnings || []).some((x) => RED_FLAGS.includes(x)) ? 'alert' : 'info', 15)}<span>${esc(parsedNotice(p))}</span></div>
       <div class="app-head parsed-head">
         ${logo(p.org)}
         <div class="app-ttl"><h3 class="wrap">${esc(p.title)}</h3><div class="sub">${esc(p.org)}</div></div>
         ${p.deadline ? `<span class="due t-${tone(p.deadline)}"><i></i>${esc(relDue(p.deadline))}</span>` : ''}
       </div>
       <dl class="kv">
-        <dt>${esc(t('Region'))}</dt><dd>${esc(t(REGION[p.region]))}</dd>
-        <dt>${esc(t('Category'))}</dt><dd>${esc(t(CAT[p.category]))}</dd>
-        <dt>${esc(t('Funding'))}</dt><dd>${esc(FUNDING[p.funding] ? t(FUNDING[p.funding]) : t('Not stated'))}</dd>
-        <dt>${esc(t('Pay'))}</dt><dd>${esc(p.pay || t('Not stated'))}</dd>
-        <dt>${esc(t('Deadline'))}</dt><dd class="num">${esc(p.deadline ? fmtDate(p.deadline, true) : t('Not found'))}</dd>
+        <dt>${esc(t('Region'))}</dt><dd${evidenceTip(p, 'country')}>${esc(p.country || t(REGION[p.region]))}</dd>
+        <dt>${esc(t('Category'))}</dt><dd${evidenceTip(p, 'category')}>${esc(t(CAT[p.category]))}</dd>
+        <dt>${esc(t('Funding'))}</dt><dd${evidenceTip(p, 'funding')}>${esc(FUNDING[p.funding] ? t(FUNDING[p.funding]) : t('Not stated'))}</dd>
+        <dt>${esc(t('Pay'))}</dt><dd${evidenceTip(p, 'pay')}>${esc(p.pay || t('Not stated'))}</dd>
+        <dt>${esc(t('Deadline'))}</dt><dd class="num"${evidenceTip(p, 'deadline')}>${esc(p.deadline ? fmtDate(p.deadline, true) : t('Not found'))}</dd>
       </dl>
       <div class="section-label">${esc(t('Steps'))}</div>
       ${p.steps_json.length ? `<ol class="timeline">${p.steps_json.map((s) => `<li><span>${esc(s.t)}</span><span class="mono muted">${esc(fmtDate(s.d))}</span></li>`).join('')}</ol>` : `<p class="muted small">${esc(t('No dated steps found. Add them after tracking.'))}</p>`}
@@ -105,7 +187,7 @@ function renderImport() {
 function publishParsed(alsoTrack) {
   const p = S.parsed;
   if (!p) return;
-  const opp = { ...clone(p), id: 'custom-' + Date.now().toString(36), source: 'you', custom: true, added: new Date().toISOString() };
+  const opp = { ...clone(p), id: 'custom-' + Date.now().toString(36), source: 'you', custom: true, verified: false, added: new Date().toISOString() };
   if (!opp.deadline) opp.deadline = null;
   S.custom.unshift(opp);
   S.custom = S.custom.slice(0, 100);

@@ -253,6 +253,10 @@ alter table public.opportunities add column if not exists pay_min numeric(14, 2)
 alter table public.opportunities add column if not exists pay_max numeric(14, 2) check (pay_max >= 0);
 alter table public.opportunities add column if not exists pay_currency text check (char_length(pay_currency) <= 5);
 alter table public.opportunities add column if not exists verified boolean not null default false;
+alter table public.opportunities add column if not exists checked_by text not null default 'rules'
+  check (checked_by in ('rules', 'ai'));
+alter table public.opportunities add column if not exists evidence jsonb
+  check (evidence is null or (jsonb_typeof(evidence) = 'object' and pg_column_size(evidence) <= 12000));
 
 create index if not exists opportunities_deadline_idx on public.opportunities (deadline);
 create index if not exists opportunities_category_region_idx on public.opportunities (category, region);
@@ -330,20 +334,22 @@ begin
   insert into public.opportunities as o (
     id, title, org, url, source, category, region, funding, deadline, pay, summary, published,
     exp_min, exp_max, level, job_type, work_mode, country, education, field, org_type,
-    pay_min, pay_max, pay_currency, verified, found, checked
+    pay_min, pay_max, pay_currency, verified, checked_by, evidence, found, checked
   )
   select
     r.id, left(r.title, 200), left(r.org, 100), r.url, left(r.source, 120), r.category, r.region, r.funding,
     r.deadline, left(r.pay, 60), left(r.summary, 400), r.published,
     r.exp_min, r.exp_max, r.level, r.job_type, r.work_mode, left(r.country, 60), r.education, r.field, r.org_type,
     r.pay_min, r.pay_max, left(r.pay_currency, 5), coalesce(r.verified, false),
+    case when r.checked_by = 'ai' then 'ai' else 'rules' end,
+    case when jsonb_typeof(r.evidence) = 'object' and pg_column_size(r.evidence) <= 12000 then r.evidence else null end,
     coalesce(r.found, private.today_dhaka()), coalesce(r.checked, private.today_dhaka())
   from jsonb_to_recordset(items) as r(
     id text, title text, org text, url text, source text, category text, region text, funding text,
     deadline date, pay text, summary text, published date,
     exp_min smallint, exp_max smallint, level text, job_type text, work_mode text, country text,
     education text, field text, org_type text, pay_min numeric, pay_max numeric, pay_currency text,
-    verified boolean, found date, checked date
+    verified boolean, checked_by text, evidence jsonb, found date, checked date
   )
   where r.id is not null and r.title is not null and r.url ~ '^https?://' and r.source is not null
     and not exists (
@@ -357,7 +363,9 @@ begin
     job_type = excluded.job_type, work_mode = excluded.work_mode, country = excluded.country,
     education = excluded.education, field = excluded.field, org_type = excluded.org_type,
     pay_min = excluded.pay_min, pay_max = excluded.pay_max, pay_currency = excluded.pay_currency,
-    verified = excluded.verified, checked = excluded.checked;
+    verified = excluded.verified, checked = excluded.checked,
+    checked_by = case when excluded.checked_by = 'ai' or o.checked_by <> 'ai' then excluded.checked_by else o.checked_by end,
+    evidence = case when excluded.checked_by = 'ai' or o.checked_by <> 'ai' then excluded.evidence else o.evidence end;
   get diagnostics saved = row_count;
   return saved;
 end;
@@ -442,6 +450,175 @@ end;
 $$;
 
 
+create table if not exists private.engine_cache (
+  kind text not null check (kind in ('search', 'extract')),
+  cache_key text not null check (char_length(cache_key) = 64),
+  payload jsonb not null check (pg_column_size(payload) <= 300000),
+  created_at timestamptz not null default now(),
+  primary key (kind, cache_key)
+);
+
+create table if not exists private.engine_counters (
+  bucket text not null check (char_length(bucket) between 3 and 120),
+  window_start timestamp not null,
+  count integer not null default 0,
+  primary key (bucket, window_start)
+);
+
+create table if not exists private.engine_state (
+  provider text primary key check (char_length(provider) between 2 and 40),
+  cooldown_until timestamptz not null,
+  reason text not null default '' check (char_length(reason) <= 60),
+  updated_at timestamptz not null default now()
+);
+
+revoke all on all tables in schema private from public, anon, authenticated;
+
+create or replace function private.engine_secret_ok(secret text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.secret_ok('mail', secret) or private.secret_ok('ingest', secret);
+$$;
+
+create or replace function private.engine_window(kind text)
+returns timestamp
+language sql
+stable
+set search_path = ''
+as $$
+  select case kind
+    when 'hour' then date_trunc('hour', now() at time zone 'UTC')
+    when 'day' then date_trunc('day', now() at time zone 'UTC')
+    when 'month' then date_trunc('month', now() at time zone 'UTC')
+    when 'total' then timestamp '2000-01-01'
+  end;
+$$;
+
+create or replace function public.engine_take(secret text, items jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  it jsonb;
+  win timestamp;
+  used integer;
+begin
+  if not private.engine_secret_ok(secret) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  if jsonb_typeof(items) <> 'array' or jsonb_array_length(items) not between 1 and 8 then
+    raise exception 'bad items';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('engine_take', 15));
+  for it in select value from jsonb_array_elements(items) loop
+    win := private.engine_window(it ->> 'window');
+    if win is null or char_length(coalesce(it ->> 'bucket', '')) not between 3 and 120
+      or jsonb_typeof(it -> 'limit') <> 'number' then
+      raise exception 'bad item';
+    end if;
+    select c.count into used from private.engine_counters c
+      where c.bucket = it ->> 'bucket' and c.window_start = win;
+    if coalesce(used, 0) >= (it ->> 'limit')::integer then
+      return jsonb_build_object('ok', false, 'blocked', it ->> 'bucket');
+    end if;
+  end loop;
+  for it in select value from jsonb_array_elements(items) loop
+    insert into private.engine_counters as c (bucket, window_start, count)
+    values (it ->> 'bucket', private.engine_window(it ->> 'window'), 1)
+    on conflict (bucket, window_start) do update set count = c.count + 1;
+  end loop;
+  if random() < 0.02 then
+    delete from private.engine_counters c
+      where c.window_start > timestamp '2000-01-01' and c.window_start < (now() at time zone 'UTC') - interval '70 days';
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.engine_cache_get(secret text, kind text, cache_key text, max_age_seconds integer)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.engine_secret_ok(secret) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  return (
+    select c.payload from private.engine_cache c
+    where c.kind = engine_cache_get.kind and c.cache_key = engine_cache_get.cache_key
+      and c.created_at > now() - make_interval(secs => least(greatest(max_age_seconds, 0), 2592000))
+  );
+end;
+$$;
+
+create or replace function public.engine_cache_put(secret text, kind text, cache_key text, payload jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.engine_secret_ok(secret) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  insert into private.engine_cache as c (kind, cache_key, payload)
+  values (engine_cache_put.kind, engine_cache_put.cache_key, engine_cache_put.payload)
+  on conflict (kind, cache_key) do update set payload = excluded.payload, created_at = now();
+  if random() < 0.02 then
+    delete from private.engine_cache c where c.created_at < now() - interval '30 days';
+  end if;
+end;
+$$;
+
+create or replace function public.engine_state_get(secret text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.engine_secret_ok(secret) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  return coalesce((
+    select jsonb_object_agg(s.provider, jsonb_build_object('until', s.cooldown_until, 'reason', s.reason))
+    from private.engine_state s where s.cooldown_until > now()
+  ), '{}'::jsonb);
+end;
+$$;
+
+create or replace function public.engine_state_set(secret text, provider text, seconds integer, reason text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.engine_secret_ok(secret) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  insert into private.engine_state as s (provider, cooldown_until, reason)
+  values (left(engine_state_set.provider, 40), now() + make_interval(secs => least(greatest(seconds, 1), 3024000)), left(coalesce(engine_state_set.reason, ''), 60))
+  on conflict (provider) do update set cooldown_until = excluded.cooldown_until, reason = excluded.reason, updated_at = now();
+end;
+$$;
+
+create or replace view private.engine_usage as
+  select bucket, window_start, count from private.engine_counters
+  where window_start >= date_trunc('month', now() at time zone 'UTC') or window_start = timestamp '2000-01-01'
+  order by window_start desc, bucket;
+
+
 revoke execute on all functions in schema public from public, anon, authenticated;
 revoke execute on all functions in schema private from public, anon, authenticated;
 alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
@@ -451,5 +628,10 @@ grant execute on function public.ingest_opportunities(text, jsonb) to anon;
 grant execute on function public.prune_opportunities(text) to anon;
 grant execute on function public.reported_opportunities(text) to anon;
 grant execute on function public.mail_gate(text, text, integer) to anon;
+grant execute on function public.engine_take(text, jsonb) to anon;
+grant execute on function public.engine_cache_get(text, text, text, integer) to anon;
+grant execute on function public.engine_cache_put(text, text, text, jsonb) to anon;
+grant execute on function public.engine_state_get(text) to anon;
+grant execute on function public.engine_state_set(text, text, integer, text) to anon;
 grant execute on function private.is_verified() to authenticated;
 grant execute on function private.today_dhaka() to anon, authenticated;

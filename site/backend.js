@@ -204,6 +204,34 @@ const Backend = (() => {
     }
   }
 
+  async function callApi(path, body, { timeout = 60000 } = {}) {
+    const token = await accessToken();
+    if (!token) throw Object.assign(new Error('Sign in again.'), { status: 401 });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    let res;
+    try {
+      res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+        cache: 'no-store',
+      });
+    } catch (e) {
+      throw Object.assign(new Error(e.name === 'AbortError' ? 'The server took too long to answer.' : "Can't reach the server. Check your internet connection."), { offline: true });
+    } finally {
+      clearTimeout(timer);
+    }
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    if (!res.ok) {
+      const message = data && typeof data.message === 'string' ? data.message.slice(0, 300) : res.status === 404 ? 'AI extraction is not set up on this site yet.' : 'Something went wrong. Please try again.';
+      throw Object.assign(new Error(message), { status: res.status, code: data && data.error });
+    }
+    return data;
+  }
+
   const security = (captcha) => (captcha ? { gotrue_meta_security: { captcha_token: captcha } } : {});
   const cleanEmail = (email) => String(email || '').trim().toLowerCase().slice(0, 254);
 
@@ -215,6 +243,7 @@ const Backend = (() => {
     get keep() { return keepSignedIn(); },
     onChange(fn) { listeners.add(fn); },
     rest,
+    callApi,
 
     setKeep(on) {
       try { localStorage.setItem(KEEP_KEY, on ? '1' : '0'); } catch { }

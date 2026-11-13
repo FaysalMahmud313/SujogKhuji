@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import unicodedata
 import urllib.error
@@ -15,7 +17,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
-TAVILY_URL = "https://api.tavily.com/search"
 DHAKA = timezone(timedelta(hours=6))
 MAX_ITEMS = 800
 KEEP_UNDATED_DAYS = 21
@@ -127,24 +128,42 @@ def fill(template: str) -> str:
     return template.format(year=now.year, next_year=now.year + 1, month=now.strftime("%B"))
 
 
-def tavily(query: str, key: str) -> list[dict]:
-    body = {
-        "query": query[:380],
-        "search_depth": "basic",
-        "max_results": 15,
-        "include_raw_content": "text",
-        "include_published_date": True,
-        "exclude_domains": EXCLUDED_DOMAINS,
-        "time_range": "month",
-    }
-    request = urllib.request.Request(
-        TAVILY_URL,
-        data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read(12_000_000)).get("results") or []
+ENGINE = ROOT / "scripts" / "engine.mjs"
+ENGINE_VARS = (
+    "TAVILY_API_KEY", "SERPER_API_KEY", "EXA_API_KEY", "TAVILY_MONTHLY_CAP", "SERPER_TOTAL_CAP", "EXA_MONTHLY_CAP",
+    "GROQ_API_KEY", "GROQ_MODEL", "GROQ_FALLBACK_MODEL", "GROQ_DAILY_CAP", "GROQ_FAST_DAILY_CAP",
+    "GEMINI_API_KEY", "GEMINI_BILLING_DISABLED", "GEMINI_MODEL", "GEMINI_DAILY_CAP",
+    "OPENROUTER_API_KEY", "OPENROUTER_MODELS", "OPENROUTER_DAILY_CAP", "AI_ORDER", "AI_DAILY_CAP", "AI_MAX_PER_RUN",
+)
+DATABASE_VARS = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "INGEST_SECRET")
+
+
+def run_engine(command: str, payload: dict, use_database: bool, timeout: int = 900) -> dict | None:
+    node = shutil.which("node")
+    if not node or not ENGINE.exists():
+        log("engine: Node.js is not installed, so searching and AI checks are skipped")
+        return None
+    env = {k: v for k, v in os.environ.items() if k not in ENGINE_VARS + DATABASE_VARS}
+    for name in ENGINE_VARS + (DATABASE_VARS if use_database else ()):
+        value = load_env_key(name)
+        if value:
+            env[name] = value
+    try:
+        done = subprocess.run([node, str(ENGINE)], input=json.dumps({"command": command, **payload}), capture_output=True,
+                              text=True, encoding="utf-8", env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        log(f"engine: {command} took too long and was stopped")
+        return None
+    for line in (done.stderr or "").splitlines():
+        if line.strip():
+            log(line.strip())
+    if done.returncode != 0:
+        return None
+    try:
+        return json.loads(done.stdout or "{}")
+    except json.JSONDecodeError:
+        log(f"engine: {command} returned unreadable output")
+        return None
 
 
 def domain_of(url: str) -> str:
@@ -877,7 +896,7 @@ def to_item(result: dict, search: dict) -> dict | None:
 
 DB_FIELDS = ("id", "title", "org", "url", "source", "category", "region", "funding", "deadline", "pay", "summary",
              "published", "exp_min", "exp_max", "level", "job_type", "work_mode", "country", "education", "field",
-             "org_type", "pay_min", "pay_max", "pay_currency", "verified", "found", "checked")
+             "org_type", "pay_min", "pay_max", "pay_currency", "verified", "checked_by", "evidence", "found", "checked")
 DB_LIMITS = {"id": 40, "title": 200, "org": 100, "source": 120, "pay": 60, "summary": 400, "country": 60, "pay_currency": 5}
 DB_CHOICES = {
     "funding": ("full", "partial"),
@@ -910,6 +929,9 @@ def db_row(item: dict) -> dict | None:
         if isinstance(row[key], bool) or not isinstance(row[key], (int, float)) or not 0 <= row[key] < 10 ** 11:
             row[key] = None
     row["verified"] = row["verified"] is True
+    row["checked_by"] = "ai" if row["checked_by"] == "ai" else "rules"
+    evidence = row["evidence"] if isinstance(row["evidence"], dict) else None
+    row["evidence"] = evidence if evidence and len(json.dumps(evidence, ensure_ascii=False)) <= 9000 else None
     for key in ("deadline", "published", "found", "checked"):
         try:
             row[key] = date.fromisoformat(str(row[key])[:10]).isoformat() if row[key] else None
@@ -985,6 +1007,74 @@ def push_to_database(items: list[dict], errors: list[str]) -> None:
         log(f"database: failed ({type(exc).__name__})")
 
 
+
+AI_FIELD_MAP = {
+    "organization": "org", "category": "category", "country": "country", "deadline": "deadline", "funding": "funding",
+    "pay": "pay", "experience_min_years": "exp_min", "experience_max_years": "exp_max", "job_type": "job_type",
+    "work_mode": "work_mode", "education": "education", "field": "field", "org_type": "org_type",
+}
+AI_ITEM_FIELDS = tuple(AI_FIELD_MAP.values()) + ("region", "level", "pay_min", "pay_max", "pay_currency", "evidence", "checked_by")
+RED_FLAGS = {"asks_for_payment", "whatsapp_only", "guaranteed_result"}
+
+
+def apply_ai(item: dict, result: dict | None, trusted: bool) -> dict | None:
+    if not result:
+        return item
+    warnings = set(result.get("warnings") or [])
+    if not result.get("is_opportunity", True) or "not_an_opening" in warnings or "expired" in warnings:
+        return None
+    if warnings & RED_FLAGS and not trusted:
+        return None
+    evidence = result.get("evidence") or {}
+    kept = {}
+    for ai_key, item_key in AI_FIELD_MAP.items():
+        proof = evidence.get(ai_key) or {}
+        if proof.get("status") != "verified":
+            continue
+        value = result.get(item_key)
+        if value is None:
+            continue
+        if item_key == "deadline" and value < today().isoformat():
+            return None
+        item[item_key] = value
+        kept[item_key] = {"quote": str(proof.get("quote") or "")[:240], "url": proof.get("url")}
+    if "country" in kept:
+        item["region"] = "BD" if item["country"] == "Bangladesh" else "GLOBAL"
+    if "exp_min" in kept:
+        item["level"] = level_for(int(item["exp_min"]))
+        if "exp_max" not in kept:
+            item["exp_max"] = None
+    if "pay" in kept:
+        item["pay_min"], item["pay_max"], item["pay_currency"] = pay_range_of(item["pay"])
+    item["evidence"] = kept or None
+    item["checked_by"] = "ai"
+    return item
+
+
+def enrich_with_ai(fresh: list[dict], texts: dict[str, dict], previous: list[dict], use_database: bool) -> list[dict]:
+    done_before = {p.get("id") for p in previous if p.get("checked_by") == "ai"}
+    todo = [i for i in fresh if i["id"] not in done_before and i["id"] in texts]
+    if not todo:
+        return fresh
+    reply = run_engine("extract", {"items": [{"id": i["id"], **texts[i["id"]]} for i in todo]}, use_database)
+    if not reply:
+        return fresh
+    by_id = {r.get("id"): r.get("result") for r in reply.get("results", []) if r.get("result")}
+    out, dropped = [], 0
+    for item in fresh:
+        if item["id"] not in by_id:
+            out.append(item)
+            continue
+        kept = apply_ai(item, by_id[item["id"]], is_trusted(item.get("source") or ""))
+        if kept is None:
+            dropped += 1
+        else:
+            out.append(kept)
+    if dropped:
+        log(f"ai: removed {dropped} listings that were closed, not real openings or asked for money")
+    return out
+
+
 def load_previous(source: str | None) -> list[dict]:
     if not source:
         return []
@@ -1029,6 +1119,10 @@ def merge(previous: list[dict], fresh: list[dict]) -> list[dict]:
         old = by_id.get(item["id"])
         item["found"] = old.get("found", now) if old else now
         item["checked"] = now
+        if old and old.get("checked_by") == "ai" and item.get("checked_by") != "ai":
+            for key in AI_ITEM_FIELDS:
+                if key in old:
+                    item[key] = old[key]
         by_id[item["id"]] = item
     def quality(item: dict) -> tuple:
         years = [int(y) for y in re.findall(r"\b(20\d\d)\b", item["title"])]
@@ -1065,6 +1159,8 @@ def main() -> int:
     ap.add_argument("--no-database", action="store_true", help="don't read from or write to Supabase even if configured")
     ap.add_argument("--save-raw", default=None, help="save raw search results to this file")
     ap.add_argument("--from-raw", default=None, help="rebuild from saved raw results instead of searching")
+    ap.add_argument("--no-ai", action="store_true", help="don't check new listings with the free AI providers")
+    ap.add_argument("--ai", action="store_true", help="with --from-raw: also run the AI check")
     args = ap.parse_args()
 
     previous = load_previous(args.previous) or load_previous(args.out)
@@ -1077,35 +1173,38 @@ def main() -> int:
     if args.from_raw:
         raw_results = [(r["search"], r["results"]) for r in json.loads(Path(args.from_raw).read_text(encoding="utf-8"))]
     elif should_search:
-        key = load_env_key("TAVILY_API_KEY")
-        if not key:
-            log("TAVILY_API_KEY is not set: keeping previous data only")
+        if not any(load_env_key(k) for k in ("TAVILY_API_KEY", "SERPER_API_KEY", "EXA_API_KEY")):
+            log("no search key is set (TAVILY_API_KEY, SERPER_API_KEY or EXA_API_KEY): keeping previous data only")
             errors.append("search key missing")
         else:
-            for s in searches:
-                try:
-                    results = tavily(s["q"], key)
-                    raw_results.append((s, results))
-                    log(f"search ok ({len(results)} results): {s['q']}")
-                except urllib.error.HTTPError as exc:
-                    errors.append(f"HTTP {exc.code} for one search")
-                    log(f"search failed HTTP {exc.code}: {s['q']}")
-                    if exc.code in (401, 432, 433):
-                        break
-                except Exception as exc:
-                    errors.append(f"{type(exc).__name__} for one search")
-                    log(f"search failed {type(exc).__name__}: {s['q']}")
+            reply = run_engine("search", {"queries": [{"q": s["q"], "max": 15, "range": "month"} for s in searches]}, not args.no_database)
+            if reply is None:
+                errors.append("search engine failed")
+            else:
+                for s, res in zip(searches, reply.get("results", [])):
+                    if res.get("provider"):
+                        raw_results.append((s, res.get("results") or []))
+                    else:
+                        errors.append("search unavailable for one query")
 
     if args.save_raw and raw_results:
         Path(args.save_raw).write_text(json.dumps([{"search": s, "results": r} for s, r in raw_results]), encoding="utf-8")
 
-    fresh, seen_urls = [], set()
+    fresh, seen_urls, texts = [], set(), {}
     for search, results in raw_results:
         for result in results:
             item = to_item(result, search)
             if item and item["url"] not in seen_urls:
                 seen_urls.add(item["url"])
+                item["checked_by"] = "rules"
                 fresh.append(item)
+                body = f"{result.get('content') or ''}\n{result.get('raw_content') or ''}".strip()
+                texts[item["id"]] = {"url": item["url"], "title": str(result.get("title") or "")[:200], "text": body[:20000]}
+
+    if fresh and not args.no_ai and not args.from_raw:
+        fresh = enrich_with_ai(fresh, texts, previous, not args.no_database)
+    elif fresh and args.from_raw and args.ai:
+        fresh = enrich_with_ai(fresh, texts, previous, not args.no_database)
 
     items = merge(previous, fresh)
     if not args.no_database:

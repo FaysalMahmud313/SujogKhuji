@@ -235,5 +235,44 @@ class ScamListingTests(unittest.TestCase):
         self.assertIsNone(c.to_item(result, {"region": "BD"}))
 
 
+class ApplyAiTests(unittest.TestCase):
+    def base(self):
+        return {"id": "x", "title": "Trainee", "url": "https://acme.com/j", "source": "acme.com", "category": "job", "region": "GLOBAL",
+                "deadline": None, "funding": None, "pay": None, "exp_min": None, "exp_max": None, "level": None, "country": None,
+                "checked_by": "rules"}
+
+    def ai(self, **extra):
+        r = {"is_opportunity": True, "warnings": [], "deadline": "2099-12-30", "country": "Bangladesh", "pay": "BDT 45,000 per month",
+             "exp_min": 0, "funding": "full",
+             "evidence": {"deadline": {"status": "verified", "quote": "Deadline: 30 December 2099", "url": "https://acme.com/j"},
+                          "country": {"status": "verified", "quote": "Dhaka, Bangladesh", "url": "https://acme.com/j"},
+                          "pay": {"status": "verified", "quote": "BDT 45,000 per month", "url": "https://acme.com/j"},
+                          "experience_min_years": {"status": "verified", "quote": "No experience required", "url": "https://acme.com/j"},
+                          "funding": {"status": "rejected"}}}
+        r.update(extra)
+        return r
+
+    def test_only_verified_facts_are_applied(self):
+        item = c.apply_ai(self.base(), self.ai(), trusted=False)
+        self.assertEqual(item["deadline"], "2099-12-30")
+        self.assertEqual(item["region"], "BD")
+        self.assertEqual(item["level"], "entry")
+        self.assertEqual(item["pay_min"], 45000.0)
+        self.assertIsNone(item["funding"])
+        self.assertEqual(item["checked_by"], "ai")
+        self.assertEqual(set(item["evidence"]), {"deadline", "country", "pay", "exp_min"})
+
+    def test_closed_fake_or_non_openings_are_dropped(self):
+        self.assertIsNone(c.apply_ai(self.base(), self.ai(warnings=["expired"]), trusted=False))
+        self.assertIsNone(c.apply_ai(self.base(), self.ai(is_opportunity=False), trusted=False))
+        self.assertIsNone(c.apply_ai(self.base(), self.ai(warnings=["asks_for_payment"]), trusted=False))
+        self.assertIsNotNone(c.apply_ai(self.base(), self.ai(warnings=["asks_for_payment"]), trusted=True))
+        past = self.ai(deadline="2020-01-01")
+        self.assertIsNone(c.apply_ai(self.base(), past, trusted=False))
+
+    def test_no_ai_result_leaves_the_item_alone(self):
+        self.assertEqual(c.apply_ai(self.base(), None, trusted=False)["checked_by"], "rules")
+
+
 if __name__ == "__main__":
     unittest.main()
