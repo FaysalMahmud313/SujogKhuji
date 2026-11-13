@@ -12,8 +12,8 @@ export function aiProviders(env = process.env) {
   if (groqKey) {
     const main = String(env.GROQ_MODEL || 'openai/gpt-oss-120b').trim();
     const fast = String(env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b').trim();
-    if (MODEL_NAME.test(main)) list.push({ id: 'groq', url: GROQ_URL, key: groqKey, model: main, cap: capFrom(env, 'GROQ_DAILY_CAP', 800), jsonMode: true, extra: /gpt-oss/.test(main) ? { reasoning_effort: 'low' } : {} });
-    if (MODEL_NAME.test(fast) && fast !== main) list.push({ id: 'groq-fast', url: GROQ_URL, key: groqKey, model: fast, cap: capFrom(env, 'GROQ_FAST_DAILY_CAP', 800), jsonMode: true, extra: /gpt-oss/.test(fast) ? { reasoning_effort: 'low' } : {} });
+    if (MODEL_NAME.test(main)) list.push({ id: 'groq', url: GROQ_URL, key: groqKey, model: main, cap: capFrom(env, 'GROQ_DAILY_CAP', 800), jsonMode: true, tools: /gpt-oss/.test(main), extra: /gpt-oss/.test(main) ? { reasoning_effort: 'low' } : {} });
+    if (MODEL_NAME.test(fast) && fast !== main) list.push({ id: 'groq-fast', url: GROQ_URL, key: groqKey, model: fast, cap: capFrom(env, 'GROQ_FAST_DAILY_CAP', 800), jsonMode: true, tools: /gpt-oss/.test(fast), extra: /gpt-oss/.test(fast) ? { reasoning_effort: 'low' } : {} });
   }
   const geminiKey = String(env.GEMINI_API_KEY || '').trim();
   if (geminiKey && String(env.GEMINI_BILLING_DISABLED || '').trim().toLowerCase() === 'yes') {
@@ -77,31 +77,37 @@ export function parseJsonReply(text) {
   }
 }
 
-async function callModel(p, { system, user, fetchImpl, maxTokens }) {
+async function callModel(p, { system, user, tools, fetchImpl, maxTokens, timeout }) {
+  const native = !!(tools && p.tools);
+  const text = (v) => (typeof v === 'function' ? v(native) : v);
   const body = {
     model: p.model,
-    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    messages: [{ role: 'system', content: text(system) }, { role: 'user', content: text(user) }],
     temperature: 0,
     max_tokens: maxTokens,
-    ...(p.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+    ...(native ? { tools, tool_choice: 'required' } : p.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     ...p.extra,
   };
-  const res = await requestJson(fetchImpl, p.url, { headers: { Authorization: `Bearer ${p.key}`, ...(p.headers || {}) }, body, timeout: 25000 });
+  const res = await requestJson(fetchImpl, p.url, { headers: { Authorization: `Bearer ${p.key}`, ...(p.headers || {}) }, body, timeout });
   const outcome = classifyAi(res.status, res.text, res.error);
   if (outcome !== 'ok') {
+    const draft = res.status === 400 && res.data && res.data.error && typeof res.data.error.failed_generation === 'string' ? res.data.error.failed_generation : '';
+    if (draft.trim()) return { outcome: 'ok', content: draft };
     const retry = res.headers && typeof res.headers.get === 'function' ? res.headers.get('retry-after') : null;
     return { outcome, status: res.status, retryAfter: retry };
   }
   const choice = res.data && Array.isArray(res.data.choices) ? res.data.choices[0] : null;
-  const content = choice && choice.message && typeof choice.message.content === 'string' ? choice.message.content : '';
+  const message = (choice && choice.message) || {};
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length) return { outcome: 'ok', content: JSON.stringify({ tool_calls: message.tool_calls }) };
+  const content = typeof message.content === 'string' ? message.content : '';
   if (!content) return { outcome: 'invalid_output', status: res.status };
   return { outcome: 'ok', content };
 }
 
-export async function completeJson({ system, user, validate, env = process.env, store, fetchImpl = fetch, now = () => Date.now(), maxAttempts = 3, maxTokens = 1800 }) {
+export async function completeJson({ system, user, validate, tools = null, env = process.env, store, fetchImpl = fetch, now = () => Date.now(), maxAttempts = 3, maxTokens = 1800, timeout = 25000 }) {
   const providers = aiProviders(env);
   const attempts = [];
-  if (!providers.length) return { unavailable: true, attempts: [{ provider: 'none', outcome: 'not_configured' }] };
+  if (!providers.length) return { unavailable: true, calls: 0, attempts: [{ provider: 'none', outcome: 'not_configured' }] };
   const state = await store.stateGet().catch(() => ({}));
   let called = 0;
   for (const p of providers) {
@@ -120,13 +126,13 @@ export async function completeJson({ system, user, validate, env = process.env, 
     }
     called += 1;
     let res;
-    try { res = await callModel(p, { system, user, fetchImpl, maxTokens }); } catch { res = { outcome: 'temporary' }; }
+    try { res = await callModel(p, { system, user, tools, fetchImpl, maxTokens, timeout }); } catch { res = { outcome: 'temporary' }; }
     if (res.outcome === 'ok') {
       const parsed = parseJsonReply(res.content);
       const checked = parsed ? validate(parsed) : { ok: false, reason: 'not_json' };
       if (checked.ok) {
         attempts.push({ provider: p.id, outcome: 'ok' });
-        return { provider: p.id, model: p.model, value: checked.value, attempts };
+        return { provider: p.id, model: p.model, value: checked.value, attempts, calls: called };
       }
       attempts.push({ provider: p.id, outcome: 'invalid_output', reason: checked.reason });
       continue;
@@ -139,5 +145,5 @@ export async function completeJson({ system, user, validate, env = process.env, 
       state[target] = { until: now() + seconds * 1000, reason: res.outcome };
     }
   }
-  return { unavailable: true, attempts };
+  return { unavailable: true, attempts, calls: called };
 }

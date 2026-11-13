@@ -211,6 +211,8 @@ const S = {
   filters: { ...DEFAULT_FILTERS },
   page: 1,
   parsed: null,
+  lookup: null,
+  live: { q: '', status: 'idle', answer: '', memory: '', items: [], message: '' },
   institutions: null,
   syncing: false,
   online: navigator.onLine !== false,
@@ -533,6 +535,7 @@ function clearAccountData() {
 }
 
 const allOpps = () => [...S.custom, ...S.data.items];
+const findOpp = (id) => allOpps().find((x) => x.id === id) || S.live.items.find((x) => x.id === id);
 const isOpen = (o) => !o.deadline || daysLeft(o.deadline) >= 0;
 const visibleOpps = () => allOpps().filter((o) => isOpen(o) && !S.reported.includes(o.id));
 const isTracked = (id) => S.registered.some((r) => r.opportunity_id === id);

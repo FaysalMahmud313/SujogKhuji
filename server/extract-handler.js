@@ -1,5 +1,5 @@
 import { safeFetchPage, UrlError, requestJson, checkUrl } from './engine/http.js';
-import { searchWeb } from './engine/search.js';
+import { lookupOpportunity } from './engine/lookup.js';
 import { extractOpportunity, normalizeText } from './engine/extract.js';
 import { capFrom, hashKey, makeStore } from './engine/store.js';
 
@@ -42,19 +42,7 @@ async function verifyUser(token, env, fetchImpl) {
 }
 
 const SAFE_WORD = /[^\p{L}\p{N} &.'-]/gu;
-const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'from', 'about', 'into']);
-const tokensOf = (s) => normalizeText(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-
-export const queryWords = (s) => [...new Set(tokensOf(s).filter((w) => (w.length >= 3 || /\d/.test(w)) && !STOP_WORDS.has(w)))];
-
-export function wordsFound(words, text) {
-  const tokens = new Set(tokensOf(text));
-  const list = [...tokens];
-  return words.filter((w) => tokens.has(w) || tokens.has(`${w}s`) || tokens.has(`${w}es`) || (w.length >= 5 && list.some((t) => t.startsWith(w)))).length;
-}
-
-export const pageMatches = (words, text) => wordsFound(words, text) >= Math.min(words.length, Math.max(2, Math.round(words.length * 0.7)));
-export const resultMatches = (words, r) => wordsFound(words, `${r.title || ''} ${r.org || ''} ${r.url || ''}`) >= Math.ceil(words.length / 2);
+const MISS_SECONDS = 3 * 3600;
 
 async function findListing(name, env, fetchImpl) {
   const base = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
@@ -79,7 +67,7 @@ async function findListing(name, env, fetchImpl) {
   };
 }
 
-async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, now, uid }) {
+async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, now, uid, skipListing, lang }) {
   if (mode === 'text') {
     const out = await extractOpportunity({ docs: [{ url: null, title: null, text: input }], env, store, fetchImpl, now });
     return out;
@@ -89,28 +77,16 @@ async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, no
     if (!page.text || page.text.length < 120) return { error: 'empty_page' };
     return extractOpportunity({ docs: [page], env, store, fetchImpl, now });
   }
-  const listing = await findListing(input, env, fetchImpl).catch(() => null);
-  if (listing) return { result: listing, attempts: [{ provider: 'listing', outcome: 'ok' }] };
-  const live = await store.take([
+  const listing = skipListing ? null : await findListing(input, env, fetchImpl).catch(() => null);
+  if (listing) {
+    const lookup = { query: input, found: true, answer: '', memory: '', results: [listing], sources: [], counts: { searches: 0, reads: 0, ai_calls: 0 }, model: null, checked_at: listing.checked_at };
+    return { lookup, attempts: [{ provider: 'listing', outcome: 'ok' }] };
+  }
+  const gate = () => store.take([
     { bucket: 'live_search:all', window: 'day', limit: capFrom(env, 'LIVE_SEARCH_DAILY_CAP', 40) },
     { bucket: `user:${uid}:search`, window: 'day', limit: capFrom(env, 'USER_SEARCH_DAILY_CAP', 10) },
   ]).catch(() => ({ ok: false, blocked: 'store_unavailable' }));
-  if (!live.ok) return { search_limited: live.blocked };
-  const found = await searchWeb(`${input} apply deadline eligibility`, { env, store, fetchImpl, now, maxResults: 5, range: 'year', withContent: true, cacheSeconds: 86400, fetchPage });
-  if (found.unavailable) return { unavailable: true, attempts: found.attempts, stage: 'search' };
-  const words = queryWords(input);
-  const ranked = found.results
-    .map((r) => ({ r, text: `${r.title || ''} ${r.url || ''} ${r.content || ''} ${String(r.raw_content || '').slice(0, 4000)}` }))
-    .filter((x) => pageMatches(words, x.text))
-    .map((x) => ({ r: x.r, score: wordsFound(words, x.text) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map(({ r }) => ({ url: r.url, title: r.title, text: r.raw_content || r.content }));
-  if (!ranked.length) return { error: 'nothing_found' };
-  const out = await extractOpportunity({ docs: ranked, hint: input, env, store, fetchImpl, now });
-  if (out.attempts) out.attempts = [...found.attempts, ...out.attempts];
-  if (out.result && !resultMatches(words, out.result)) return { error: 'nothing_found', attempts: out.attempts };
-  return out;
+  return lookupOpportunity({ query: input, lang, env, store, fetchImpl, fetchPage, now, gate });
 }
 
 export async function handleExtract({ method, headers = {}, body = '', env = process.env, deps = {} }) {
@@ -135,9 +111,15 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   const store = deps.store || makeStore(env, fetchImpl);
   const burst = await store.take([{ bucket: `user:${user.id}:requests`, window: 'hour', limit: capFrom(env, 'USER_REQUESTS_HOURLY_CAP', 40) }]).catch(() => ({ ok: false, blocked: 'store_unavailable' }));
   if (!burst.ok) return burst.blocked === 'store_unavailable' ? fail(503, 'unavailable', 'AI extraction is temporarily unavailable. Please try again later.') : fail(429, 'rate_limited', 'You have made many requests in the last hour. Please wait a little.', { retry_after: 600 });
-  const key = hashKey('extract', 'v2', mode, mode === 'text' ? normalizeText(input) : input.toLowerCase());
+  const skipListing = mode === 'name' && data.skip_listing === true;
+  const lang = data.lang === 'bn' ? 'bn' : 'en';
+  const key = hashKey('extract', 'v3', mode, skipListing ? 'web' : 'any', mode === 'name' ? lang : '', mode === 'text' ? normalizeText(input) : input.toLowerCase().replace(/\s+/g, ' '));
   const ttl = mode === 'name' ? 86400 : 7 * 86400;
   const cached = await store.cacheGet('extract', key, ttl).catch(() => null);
+  if (cached && cached.lookup && (cached.lookup.found || now() - Date.parse(cached.lookup.checked_at) < MISS_SECONDS * 1000)) {
+    log('cache', { mode });
+    return reply(200, { result: cached.lookup.results[0] || null, lookup: cached.lookup, mode, cached: true });
+  }
   if (cached && cached.result) { log('cache', { mode }); return reply(200, { result: cached.result, mode, cached: true }); }
   const limited = await store.take([
     { bucket: `user:${user.id}:extract`, window: 'hour', limit: capFrom(env, 'USER_EXTRACT_HOURLY_CAP', 10) },
@@ -151,7 +133,7 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   if (!inflight.has(flightKey)) {
     inflight.set(flightKey, (async () => {
       await slot(capFrom(env, 'EXTRACT_CONCURRENCY', 3));
-      try { return await runExtraction({ mode, input, env, store, fetchImpl, fetchPage, now, uid: user.id }); } finally { release(); }
+      try { return await runExtraction({ mode, input, env, store, fetchImpl, fetchPage, now, uid: user.id, skipListing, lang }); } finally { release(); }
     })().finally(() => inflight.delete(flightKey)));
   }
   let out;
@@ -163,6 +145,11 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
     return fail(500, 'failed', 'Something went wrong while reading that. Please try again.');
   }
   const tried = (out.attempts || []).map((a) => `${a.provider}:${a.outcome}`).join(',');
+  if (out.lookup) {
+    await store.cachePut('extract', key, { lookup: out.lookup }).catch(() => {});
+    log(out.lookup.found ? 'ok' : 'nothing_found', { mode, results: out.lookup.results.length, ...out.lookup.counts, tried });
+    return reply(200, { result: out.lookup.results[0] || null, lookup: out.lookup, mode, cached: false });
+  }
   if (out.result) {
     await store.cachePut('extract', key, { result: out.result }).catch(() => {});
     log('ok', { mode, provider: out.result.provider, tried });
@@ -172,6 +159,5 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   if (out.search_limited) return fail(429, 'search_limited', 'Live web search has reached today\'s free limit. Paste the text or a link instead, or try again tomorrow.', { retry_after: 3600 });
   if (out.unavailable) return fail(503, 'unavailable', out.stage === 'search' ? 'Live web search is temporarily unavailable (the free limits are used up). Paste the text or a link instead.' : 'AI extraction is temporarily unavailable (the free limits are used up). Please try again later.');
   if (out.error === 'empty_page') return fail(422, 'empty_page', 'That page has almost no readable text. Paste the text instead.');
-  if (out.error === 'nothing_found') return fail(404, 'nothing_found', 'No web page about that opportunity was found. Try a fuller name, or paste a link.');
   return fail(422, 'no_text', 'There is not enough text to read. Paste more of the announcement.');
 }

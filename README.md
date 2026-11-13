@@ -27,6 +27,7 @@ database), **GitHub Actions** (the twice-daily search), **Tavily** (web search) 
 | Safety | Pages that ask applicants for money are dropped. Three reports hide a listing for everyone. See [Security](#security). |
 | Live search | Tavily first, then Serper, then Exa, one at a time. A provider that runs out of free searches rests until its quota resets. |
 | AI extraction | The Add page reads pasted text, a link or just an opportunity name. The twice-daily search also AI-checks new listings. Free AI models only (Groq, Google Gemini, OpenRouter `:free`). Every fact must be backed by an exact quote from the source, or it is left empty. |
+| AI lookup by name | Type a few words on the Add page, or press Enter in the Discover search, and the AI does the looking: it writes its own search queries, reads the pages, then gives a short answer and up to 3 matching opportunities with their sources. One lookup uses at most 3 searches, 4 page reads, 6 AI calls and 45 seconds. Pages built with JavaScript are read through Exa's page reader. |
 
 ---
 
@@ -183,7 +184,8 @@ stay switched off, so nothing can be overused. Redeploy on Vercel afterwards.
 **How much it can do for free.** These numbers are rough and change when providers change their
 free plans. The whole site shares them; they are not per user:
 - **Twice-daily search:** about 840 Tavily searches a month, plus AI checks of up to 25 new listings per run.
-- **Add page, live web search by name:** at most 40 a day for the whole site, 10 per person.
+- **AI lookup by name (Add page and Discover):** each lookup makes 2 or 3 web searches. Searches are capped at 40 a day for the whole site and 10 per person, so that is roughly 13 to 20 lookups a day for everyone together. Raise `LIVE_SEARCH_DAILY_CAP` and `USER_SEARCH_DAILY_CAP` only while your search providers still have free searches left. Repeated lookups come from the cache and cost nothing.
+- **Groq's free plan allows 8,000 tokens a minute per model.** One lookup uses about 7,500, so when several people look things up in the same minute the engine moves on to the backup model and then to OpenRouter by itself. Answers get slower, never paid.
 - **Add page, AI reading:** 10 an hour and 30 a day per person, and about 600 a day for the whole site.
 
 When a limit is reached, people see a short "temporarily unavailable" message. Pasted text then
@@ -195,7 +197,8 @@ To see usage, run `select * from private.engine_usage;` in the Supabase SQL Edit
 Open the site, create an account with your own email, enter the code, set a password, fill in the
 details, track a listing, then sign in on your phone and check that it is there. On the Add page
 paste an announcement, a link and a name, and hover over a value in the result to see the quote it
-came from.
+came from. In Discover, type something that is not in the listings and press Enter to see the
+live AI search.
 
 ---
 
@@ -322,6 +325,7 @@ Accounts and data stay in Supabase, so nothing is lost when the website moves.
 | No *Install app* option | Install needs the https site. On Android use Chrome. |
 | Add page says *AI extraction is temporarily unavailable* | Either every free AI quota is used up for today (it comes back tomorrow), no AI key is set in Vercel, or `schema.sql` was not re-run after this update. Vercel → *Logs* → look for `extract`; `tried` lists each provider and why it was skipped. |
 | Add page: *Live web search has reached today's free limit* | The site-wide daily cap for name searches (`LIVE_SEARCH_DAILY_CAP`) is reached. Paste the text or a link instead. |
+| A name lookup says *No matching opportunity was found* for something you know exists | The search providers have no page for it, or it exists only on Facebook, which cannot be read. Paste the text of the post, or its link. |
 | Action log shows `search none … tavily:quota, serper:not_configured` | Tavily's monthly free searches are used up and no fallback key is set. Add `SERPER_API_KEY` or `EXA_API_KEY`, or wait for next month. |
 | Action log shows `store_unavailable` | `schema.sql` was not re-run after this update, or `INGEST_SECRET` does not match. |
 | Action log shows `ai: no free AI provider configured` | No `GROQ_API_KEY`/`OPENROUTER_API_KEY` secret (or Gemini without `GEMINI_BILLING_DISABLED=yes`). Listings are still collected with the rule-based checks. |
@@ -343,7 +347,7 @@ opportunity_bd/
 ├── netlify/functions/          The same functions for Netlify
 ├── server/auth-email.js        The email function's logic and its tests
 ├── server/extract-handler.js   Sign-in check, limits, caching and the three input types
-├── server/engine/              Shared engine: safe page fetching, Tavily → Serper → Exa, free AI router, evidence checks
+├── server/engine/              Shared engine: safe page fetching, Tavily → Serper → Exa, free AI router, the AI lookup loop, evidence checks
 ├── scripts/engine.mjs          Lets the Python collector use the same engine
 ├── scraper/collect.py          Searches the web and saves listings (standard library only)
 ├── scraper/test_collect.py     Checks for the collector

@@ -416,6 +416,45 @@ function renderRecommended() {
     </div>`;
 }
 
+const liveKey = (q) => q.trim().toLowerCase().replace(/\s+/g, ' ');
+const liveNow = () => (S.filters.q.trim() && S.live.status !== 'idle' && S.live.q === liveKey(S.filters.q) ? S.live : null);
+const liveId = (url) => `live-${[...String(url)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36)}`;
+
+async function liveSearch() {
+  const q = S.filters.q.trim();
+  const key = liveKey(q);
+  if (key.length < 3 || !aiReady() || S.live.status === 'loading' || (S.live.q === key && S.live.status === 'done')) return;
+  S.live = { q: key, status: 'loading', answer: '', memory: '', items: [], message: '' };
+  renderDiscover();
+  try {
+    const l = await aiLookup(q, { skip_listing: true });
+    const known = new Set(allOpps().map((o) => o.url).filter(Boolean));
+    const items = l.items
+      .filter((p) => p.url && !known.has(p.url) && !(p.deadline && daysLeft(p.deadline) < 0))
+      .map((p) => ({ ...p, id: liveId(p.url), live: true, custom: false, verified: false, found: isoIn(0) }));
+    S.live = { q: key, status: 'done', answer: l.answer, memory: l.memory, items, message: '' };
+  } catch (e) {
+    S.live = { q: key, status: 'error', answer: '', memory: '', items: [], message: e.message };
+  }
+  renderDiscover();
+}
+
+function renderLive() {
+  const box = $('#liveBox');
+  const live = liveNow();
+  if (!live) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const head = `<div class="rec-head"><h2>${icon('sparkles', 15)}${esc(t('From a live AI search'))}</h2><span class="muted small">${esc(t('Found on the web just now for “{q}”. Check each source before you apply.', { q: S.filters.q.trim() }))}</span></div>`;
+  if (live.status === 'loading') {
+    box.innerHTML = `${head}<div class="notice">${icon('search', 15)}<span>${esc(t('The AI is searching the web and reading pages. This can take up to a minute.'))}</span></div><div class="grid">${skeletonCards(2)}</div>`;
+    return;
+  }
+  if (live.status === 'error') { box.innerHTML = `${head}<div class="notice">${icon('alert', 15)}<span>${esc(live.message)}</span></div>`; return; }
+  box.innerHTML = `${head}${answerNotes(live)}${live.items.length
+    ? `<div class="grid">${live.items.map(oppCard).join('')}</div>`
+    : `<div class="notice">${icon('info', 15)}<span>${esc(t('The AI found no open opportunity for this on the web. If you have the post, paste its text or link in Add from text.'))}</span></div>`}`;
+}
+
 function renderDiscover() {
   const f = S.filters;
   $$('#fRegion button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.region));
@@ -440,6 +479,7 @@ function renderDiscover() {
     <button type="button" class="link-btn" data-action="reset-filters">${esc(t('Clear all'))}</button>` : '';
   renderSaved();
   renderRecommended();
+  renderLive();
 
   const q = f.q.trim();
   const list = filteredOpps();
@@ -457,6 +497,9 @@ function renderDiscover() {
     return;
   }
   more.hidden = true;
+  const live = liveNow();
+  if (live && (live.status === 'loading' || live.items.length)) { grid.innerHTML = ''; return; }
+  const canLive = !!q && q.length >= 3 && aiReady() && !live;
   const filtersOn = f.region !== 'ALL' || f.cat !== 'ALL' || active.length > 0;
   const hiddenByExp = f.matchExp && allOpps().some((o) => isOpen(o) && !fitsExperience(o));
   const web = q ? `https://www.google.com/search?q=${encodeURIComponent(`${q} ${userYears() === 0 ? 'fresher' : `${userYears()} years experience`} job OR internship OR scholarship apply ${new Date().getFullYear()}`)}` : '';
@@ -466,7 +509,8 @@ function renderDiscover() {
       <h3>${esc(S.data.error && !S.data.items.length ? t('Listings could not be loaded') : q ? t("Nothing open for “{q}” in today's listings", { q }) : t('No open listings match these filters'))}</h3>
       <p>${esc(S.data.error && !S.data.items.length ? S.data.error : q ? t("Our daily web search hasn't found a verified open listing for this yet. You can search the whole web now, or widen the filters.") : t('Try another category, region or fewer filters.'))}${hiddenByExp ? ` ${esc(t('Some listings are hidden because they ask for more experience than yours.'))}` : ''}</p>
       <div class="actions actions-center">
-        ${q ? `<a class="btn btn-primary" href="${esc(web)}" target="_blank" rel="noopener noreferrer">${icon('external', 16)}${esc(t('Search the web for “{q}”', { q }))}</a>` : ''}
+        ${canLive ? `<button type="button" class="btn btn-primary" data-action="live-search">${icon('sparkles', 16)}${esc(t('Search the web live'))}</button>` : ''}
+        ${q && !canLive ? `<a class="btn btn-primary" href="${esc(web)}" target="_blank" rel="noopener noreferrer">${icon('external', 16)}${esc(t('Search the web for “{q}”', { q }))}</a>` : ''}
         ${S.data.error && !S.data.items.length ? `<button type="button" class="btn btn-primary" data-action="reload-data">${icon('refresh', 16)}${esc(t('Try again'))}</button>` : ''}
         ${hiddenByExp ? `<button type="button" class="btn btn-secondary" data-action="show-all-exp">${esc(t('Show all experience levels'))}</button>` : ''}
         ${filtersOn ? `<button type="button" class="btn btn-secondary" data-action="reset-filters">${esc(t('Reset filters'))}</button>` : ''}
@@ -480,6 +524,13 @@ function bindDiscover() {
     clearTimeout(searchTimer);
     const value = e.target.value;
     searchTimer = setTimeout(() => { S.filters.q = value; filtersChanged({ panel: false }); }, 150);
+  });
+  $('#fSearch').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    clearTimeout(searchTimer);
+    if (S.filters.q !== e.target.value) { S.filters.q = e.target.value; filtersChanged({ panel: false }); }
+    liveSearch();
   });
   $('#fRegion').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.filters.region = b.dataset.v; filtersChanged(); } });
   $('#fCat').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.filters.cat = b.dataset.v; filtersChanged(); } });

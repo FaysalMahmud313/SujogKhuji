@@ -129,13 +129,19 @@ async function exa({ key, query, max, range, withContent, extraExcluded, fetchIm
   };
 }
 
+function fitForCache(payload) {
+  if (!payload.results.length || JSON.stringify(payload).length <= 180000) return payload;
+  const each = Math.floor(150000 / payload.results.length);
+  return { ...payload, results: payload.results.map((r) => ({ ...r, raw_content: String(r.raw_content || '').slice(0, each) })) };
+}
+
 const RUNNERS = { tavily, serper, exa };
 const KEYS = { tavily: 'TAVILY_API_KEY', serper: 'SERPER_API_KEY', exa: 'EXA_API_KEY' };
 const CAPS = { tavily: ['TAVILY_MONTHLY_CAP', 'month', 1000], serper: ['SERPER_TOTAL_CAP', 'total', 2500], exa: ['EXA_MONTHLY_CAP', 'month', 900] };
 
 export async function searchWeb(query, {
   env = process.env, store, fetchImpl = fetch, now = () => Date.now(), maxResults = 10, range = 'month',
-  withContent = true, useCache = true, cacheSeconds = 86400, excludeDomains = [], fetchPage = safeFetchPage,
+  withContent = true, useCache = true, cacheSeconds = 86400, excludeDomains = [], fetchPage = safeFetchPage, gate = null,
 } = {}) {
   const q = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 380);
   if (q.length < 2) return { provider: null, results: [], attempts: [], invalid: true };
@@ -144,6 +150,10 @@ export async function searchWeb(query, {
   if (useCache) {
     const hit = await store.cacheGet('search', cacheKey, cacheSeconds).catch(() => null);
     if (hit && Array.isArray(hit.results)) return { ...hit, cached: true, attempts: [] };
+  }
+  if (gate) {
+    const pass = await gate();
+    if (!pass || !pass.ok) return { provider: null, results: [], attempts: [], limited: (pass && pass.blocked) || 'limit' };
   }
   const state = await store.stateGet().catch(() => ({}));
   const attempts = [];
@@ -164,7 +174,7 @@ export async function searchWeb(query, {
     if (res.outcome === 'ok') {
       const results = dedupeResults(res.results, excludeDomains).slice(0, max).map((r) => ({ ...r, provider: name }));
       const payload = { provider: name, query: q, results };
-      if (useCache) await store.cachePut('search', cacheKey, payload).catch(() => {});
+      if (useCache) await store.cachePut('search', cacheKey, fitForCache(payload)).catch(() => {});
       return { ...payload, attempts, cached: false };
     }
     const seconds = cooldownFor(name, res.outcome, now());
@@ -175,4 +185,29 @@ export async function searchWeb(query, {
     if (res.outcome === 'invalid') return { provider: null, results: [], attempts, invalid: true };
   }
   return { provider: null, results: [], attempts, unavailable: true };
+}
+
+export async function readRendered(url, { env = process.env, store, fetchImpl = fetch, now = () => Date.now(), cacheSeconds = 86400 } = {}) {
+  const key = String(env.EXA_API_KEY || '').trim();
+  const address = normalizeUrl(url);
+  if (!key || !address) return { outcome: 'not_configured' };
+  const cacheKey = hashKey('page', address);
+  const hit = await store.cacheGet('search', cacheKey, cacheSeconds).catch(() => null);
+  if (hit && typeof hit.text === 'string') return { outcome: 'ok', cached: true, ...hit };
+  const state = await store.stateGet().catch(() => ({}));
+  if (state.exa && state.exa.until > now()) return { outcome: 'cooldown' };
+  const [capName, window, fallback] = CAPS.exa;
+  const taken = await store.take([{ bucket: 'search:exa', window, limit: capFrom(env, capName, fallback) }]).catch(() => ({ ok: false, blocked: 'store_unavailable' }));
+  if (!taken.ok) return { outcome: taken.blocked === 'store_unavailable' ? 'store_unavailable' : 'cap_reached' };
+  const res = await requestJson(fetchImpl, 'https://api.exa.ai/contents', { headers: { 'x-api-key': key }, body: { urls: [url], text: { maxCharacters: 8000 } }, timeout: 15000 });
+  const outcome = classifySearch('exa', res.status, res.text, res.error);
+  if (outcome !== 'ok') {
+    const seconds = cooldownFor('exa', outcome, now());
+    if (seconds) await store.stateSet('exa', seconds, outcome).catch(() => {});
+    return { outcome, status: res.status };
+  }
+  const first = Array.isArray(res.data && res.data.results) ? res.data.results[0] : null;
+  const page = { url, title: first ? clip(first.title, 300) : '', text: first ? clip(first.text, 60000) : '' };
+  if (page.text.trim().length >= 120) await store.cachePut('search', cacheKey, page).catch(() => {});
+  return { outcome: page.text.trim().length >= 120 ? 'ok' : 'empty', ...page };
 }

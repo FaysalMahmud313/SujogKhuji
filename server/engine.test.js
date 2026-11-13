@@ -4,8 +4,9 @@ import { checkUrl, htmlToText, isPublicIp, safeFetchPage } from './engine/http.j
 import { searchWeb, classifySearch, dedupeResults } from './engine/search.js';
 import { aiProviders, classifyAi, rejectedPaidModels } from './engine/ai.js';
 import { datesIn, extractOpportunity, quoteIn, validateShape, verifyFacts } from './engine/extract.js';
-import { memoryStore } from './engine/store.js';
-import { handleExtract, detectMode, pageMatches, queryWords, resultMatches } from './extract-handler.js';
+import { cleanAnswer, cleanMemory, lookupOpportunity, parseStep } from './engine/lookup.js';
+import { hashKey, memoryStore } from './engine/store.js';
+import { handleExtract, detectMode } from './extract-handler.js';
 
 const NOW = Date.UTC(2026, 10, 13, 6, 0, 0);
 const now = () => NOW;
@@ -365,53 +366,252 @@ test('a name already in Discover is answered from the database, with no search o
   const res = await call(net, { input: 'HENNGE Global Internship' });
   assert.equal(res.status, 200);
   assert.equal(res.body.result.provider, 'listing');
+  assert.equal(res.body.lookup.results.length, 1);
   assert.deepEqual(net.hosts(), ['db.test']);
+  const web = fakeNet({ ...authRoutes(undefined, [listing]), 'api.groq.com': agent([toolReply(['finish', { answer: 'Nothing new on the web.', matches: [] }])], { opportunities: [] }) });
+  const fresh = await call(web, { input: 'HENNGE Global Internship', skip_listing: true });
+  assert.equal(fresh.body.lookup.found, false);
+  assert.ok(web.hosts().includes('api.groq.com'));
 });
 
-test('a new name is searched live, then read by AI', async () => {
-  const net = fakeNet({
-    ...authRoutes(),
-    'api.tavily.com': () => ({ json: { results: [{ url: 'https://acme.com/job', title: 'Graduate Trainee Officer - Acme Bank', content: 'Acme Bank graduate trainee', raw_content: DOC }] } }),
-    'api.groq.com': aiReply(GOOD),
-  });
+const toolReply = (...calls) => ({ json: { choices: [{ message: { content: null, tool_calls: calls.map(([name, args], i) => ({ id: `call_${i}`, type: 'function', function: { name, arguments: JSON.stringify(args) } })) } }] } });
+const agent = (steps, extraction) => {
+  let i = 0;
+  return ({ body }) => (body.tools ? steps[Math.min(i++, steps.length - 1)] : aiReply(extraction)());
+};
+const ACME = 'https://acme.com/job';
+const acmeSearch = () => ({ json: { results: [{ url: ACME, title: 'Graduate Trainee Officer - Acme Bank', content: 'Acme Bank graduate trainee', raw_content: DOC }] } });
+const acmeSteps = () => [
+  toolReply(['web_search', { queries: ['Acme Bank graduate trainee', 'Acme Bank graduate trainee 2026'] }]),
+  toolReply(['read_page', { urls: [ACME] }]),
+  toolReply(['finish', { answer: 'Acme Bank is hiring graduate trainees in Dhaka. Apply by 30 December 2026. Results come on 15 March 2027.', matches: [ACME], from_memory: 'Acme Bank is a private bank. Its deadline is usually 5 January 2027.' }]),
+];
+const groqCalls = (net) => net.calls.filter((c) => c.host === 'api.groq.com');
+const hostCalls = (net, host) => net.calls.filter((c) => c.host === host).length;
+
+test('the AI drives a name lookup: it searches, reads, then answers with checked facts', async () => {
+  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'api.groq.com': agent(acmeSteps(), { opportunities: [GOOD] }) });
   const res = await call(net, { input: 'Acme Bank graduate trainee' });
   assert.equal(res.status, 200);
-  assert.equal(res.body.result.org, 'Acme Bank PLC');
+  const l = res.body.lookup;
+  assert.equal(l.found, true);
+  assert.equal(l.results.length, 1);
+  assert.equal(l.results[0].org, 'Acme Bank PLC');
+  assert.equal(l.results[0].evidence.deadline.status, 'verified');
+  assert.deepEqual(res.body.result, l.results[0]);
+  assert.deepEqual(l.counts, { searches: 2, reads: 1, ai_calls: 4 });
+  assert.equal(l.answer, 'Acme Bank is hiring graduate trainees in Dhaka. Apply by 30 December 2026.');
+  assert.equal(l.memory, 'Acme Bank is a private bank.');
+  assert.deepEqual(l.sources, [{ url: ACME, title: 'Graduate Trainee Officer - Acme Bank' }]);
+  const first = groqCalls(net)[0].body;
+  assert.equal(first.tool_choice, 'required');
+  assert.deepEqual(first.tools.map((t) => t.function.name), ['web_search', 'finish']);
+  assert.equal(first.response_format, undefined);
+  assert.equal(net.calls.find((c) => c.host === 'api.tavily.com').body.time_range, undefined);
   assert.deepEqual(net.hosts().sort(), ['api.groq.com', 'api.tavily.com', 'db.test']);
 });
 
-test('a name search ignores pages that share only common words with it', async () => {
-  const hk = { ...GOOD, title: { value: 'Student-Athlete Learning Support and Admission', quote: null, source: 1 }, organization: { value: 'City University of Hong Kong', quote: null, source: 1 } };
+test('the lookup never goes past its limits: 3 searches, 4 page reads, 6 AI calls', async () => {
+  const urls = [1, 2, 3, 4, 5, 6].map((n) => `https://site${n}.example.org/post`);
+  let fetched = 0;
   const net = fakeNet({
     ...authRoutes(),
-    'api.tavily.com': () => ({ json: { results: [
-      { url: 'https://www.cityu.edu.hk/salsa', title: 'SALSA - City University of Hong Kong', content: 'City University student athletes admission', raw_content: 'Apply by 30 November 2026 for admission in Hong Kong.' },
-      { url: 'https://example.org/fest', title: 'Annual university festival', content: 'City university fest in Hong Kong', raw_content: 'Our yearly festival of music and arts.' },
-    ] } }),
-    'api.groq.com': aiReply(hk),
+    'api.tavily.com': () => ({ json: { results: urls.map((u, i) => ({ url: u, title: `Post ${i}`, content: 'snippet', raw_content: '' })) } }),
+    'api.groq.com': agent([
+      toolReply(['web_search', { queries: ['one two', 'three four', 'five six', 'seven eight'] }]),
+      toolReply(['read_page', { urls }], ['web_search', { queries: ['nine ten'] }]),
+      toolReply(['web_search', { queries: ['still searching'] }]),
+    ], { opportunities: [GOOD] }),
   });
-  const res = await call(net, { input: 'city university cse fest bangladesh' });
-  assert.equal(res.status, 404);
-  assert.ok(!net.hosts().includes('api.groq.com'));
+  const res = await handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: 'Some rare fellowship' }),
+    env: { ...SUPA, ...AI_ENV, TAVILY_API_KEY: 'tvly-test' },
+    deps: { fetch: net.fetchImpl, store, now, fetchPage: async (u) => { fetched += 1; return { url: u, title: 'Job', text: DOC }; } },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(hostCalls(net, 'api.tavily.com'), 3);
+  assert.equal(fetched, 4);
+  assert.deepEqual(res.body.lookup.counts, { searches: 3, reads: 4, ai_calls: 4 });
+  const asked = groqCalls(net).filter((c) => c.body.tools).map((c) => c.body.tools.map((t) => t.function.name));
+  assert.deepEqual(asked, [['web_search', 'finish'], ['read_page', 'finish'], ['finish']]);
+  assert.ok(groqCalls(net).length <= 6);
+  assert.equal(res.body.lookup.found, true);
 });
 
-test('a name match needs most of the words, as whole words', () => {
-  const words = queryWords('City University CSE Fest Bangladesh');
-  assert.deepEqual(words, ['city', 'university', 'cse', 'fest', 'bangladesh']);
-  assert.equal(pageMatches(words, 'City University of Hong Kong, a manifest of courses'), false);
-  assert.equal(pageMatches(words, 'CSE Fest 2026 at City University, Dhaka, Bangladesh'), true);
-  assert.equal(pageMatches(queryWords('Chevening Scholarship 2027'), 'Chevening Scholarships 2027-2028 now open'), true);
-  assert.equal(resultMatches(words, { title: 'Student-Athlete Learning Support', org: 'City University of Hong Kong', url: 'https://cityu.edu.hk' }), false);
+test('the lookup stops when its 45 seconds are used up', async () => {
+  let clock = NOW;
+  const net = fakeNet({
+    'api.tavily.com': acmeSearch,
+    'api.groq.com': () => { clock += 50000; return toolReply(['web_search', { queries: ['Acme Bank graduate trainee'] }]); },
+  });
+  const out = await lookupOpportunity({ query: 'Acme Bank graduate trainee', env: { ...AI_ENV, ...ENV3 }, store, fetchImpl: net.fetchImpl, fetchPage: page, now: () => clock });
+  assert.equal(out.lookup.found, false);
+  assert.equal(out.lookup.counts.ai_calls, 1);
+  assert.equal(groqCalls(net).length, 1);
 });
 
-test('the daily live-search cap and an AI outage give friendly messages', async () => {
-  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': tavilyOk(['https://a.org/1']), 'api.groq.com': () => ({ status: 503, text: 'down' }), 'openrouter.ai': () => ({ status: 503, text: 'down' }) });
-  const capped = await call(net, { input: 'Some new fellowship' }, { LIVE_SEARCH_DAILY_CAP: '0' });
+test('only addresses from the search results can be read, whatever a page tells the AI', async () => {
+  let fetched = 0;
+  const net = fakeNet({
+    ...authRoutes(), 'api.tavily.com': acmeSearch,
+    'api.groq.com': agent([
+      toolReply(['web_search', { queries: ['Acme Bank graduate trainee'] }]),
+      toolReply(['read_page', { urls: ['http://169.254.169.254/latest/meta-data', 'https://evil.example/steal'] }]),
+      toolReply(['finish', { answer: 'Found it.', matches: ['https://evil.example/steal'] }]),
+    ], { opportunities: [GOOD] }),
+  });
+  const res = await handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: 'Acme Bank graduate trainee' }),
+    env: { ...SUPA, ...AI_ENV, TAVILY_API_KEY: 'tvly-test' },
+    deps: { fetch: net.fetchImpl, store, now, fetchPage: async () => { fetched += 1; return { text: DOC }; } },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(fetched, 0);
+  assert.equal(res.body.lookup.found, false);
+  assert.deepEqual(res.body.lookup.results, []);
+  assert.match(groqCalls(net)[2].body.messages[1].content, /was refused/);
+  assert.equal(groqCalls(net).filter((c) => !c.body.tools).length, 0);
+});
+
+test('tool calls are parsed from every shape a model may send', () => {
+  const native = parseStep({ tool_calls: [{ id: 'a', type: 'function', function: { name: 'web_search', arguments: '{"queries":["cucc cse fest","CUCC CSE Fest 2026"]}' } }, { function: { name: 'read_page', arguments: { urls: ['https://fest.cucc.club'] } } }] });
+  assert.deepEqual(native.value.calls, [{ tool: 'web_search', query: 'cucc cse fest' }, { tool: 'web_search', query: 'CUCC CSE Fest 2026' }, { tool: 'read_page', url: 'https://fest.cucc.club' }]);
+  assert.equal(native.value.finish, null);
+  const plain = parseStep({ actions: [{ do: 'search', query: 'chevening 2027' }, { do: 'read', url: 'https://www.chevening.org/apply' }, { do: 'read', url: 'javascript:alert(1)' }] });
+  assert.deepEqual(plain.value.calls, [{ tool: 'web_search', query: 'chevening 2027' }, { tool: 'read_page', url: 'https://www.chevening.org/apply' }]);
+  const done = parseStep({ do: 'finish', answer: 'Found  it.\nHere.', matches: ['https://a.org/1', { url: 'https://a.org/2' }, 'ftp://x', 'https://a.org/3', 'https://a.org/4'], from_memory: 'Background.' });
+  assert.deepEqual(done.value.finish, { answer: 'Found it. Here.', matches: ['https://a.org/1', 'https://a.org/2', 'https://a.org/3'], memory: 'Background.' });
+  const stray = parseStep({ name: 'json', arguments: { answer: 'Nothing found.', matches: [] } });
+  assert.deepEqual(stray.value.finish, { answer: 'Nothing found.', matches: [], memory: '' });
+  const mixed = parseStep({ name: 'web_search', arguments: { tool: 'read_page', url: 'https://a.org/1' } });
+  assert.deepEqual(mixed.value.calls, [{ tool: 'read_page', url: 'https://a.org/1' }]);
+  assert.equal(parseStep({ hello: 'world' }).ok, false);
+  assert.equal(parseStep({ calls: [{ tool: 'delete_everything' }, { tool: 'web_search', query: 'x' }] }).ok, false);
+  assert.equal(parseStep([]).ok, false);
+  assert.equal(cleanAnswer('It is open. It closes on 15 March 2027. Apply by 30 December 2026.', DOC), 'It is open. Apply by 30 December 2026.');
+  assert.equal(cleanMemory('It is a well known bank. The deadline is 5 January 2027. The fee is 500 taka. It started in 1999.'), 'It is a well known bank. It started in 1999.');
+});
+
+test('fields without a real quote stay empty, and an opportunity with no proof is dropped', async () => {
+  const unproven = Object.fromEntries(Object.entries(GOOD).map(([k, v]) => [k, v && typeof v === 'object' && !Array.isArray(v) && v.value !== null ? { ...v, quote: 'this sentence is not on the page' } : v]));
+  const lies = { ...GOOD, deadline: fact('2027-03-15', 'Application deadline: 15 March 2027'), pay: fact('BDT 90,000 per month', 'Salary: BDT 45,000 per month') };
+  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'api.groq.com': agent(acmeSteps(), { opportunities: [lies, { ...unproven, steps: [] }] }) });
+  const res = await call(net, { input: 'Acme Bank graduate trainee' });
+  const { results } = res.body.lookup;
+  assert.equal(results.length, 1);
+  assert.equal(results[0].title, 'Graduate Trainee Officer');
+  assert.equal(results[0].deadline, null);
+  assert.equal(results[0].pay, null);
+  assert.equal(results[0].evidence.deadline.status, 'rejected');
+  assert.equal(results[0].evidence.pay.status, 'rejected');
+  assert.equal(results[0].evidence.title.status, 'verified');
+});
+
+test('when nothing is found the answer says so, and it is asked again after three hours', async () => {
+  const net = fakeNet({
+    ...authRoutes(), 'api.tavily.com': tavilyOk(['https://a.org/1']),
+    'api.groq.com': agent([toolReply(['web_search', { queries: ['unknown thing fest'] }]), toolReply(['finish', { answer: 'I could not find any page about this.', matches: [] }])], { opportunities: [GOOD] }),
+  });
+  const res = await call(net, { input: 'unknown thing fest' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.lookup.found, false);
+  assert.deepEqual(res.body.lookup.results, []);
+  assert.equal(res.body.result, null);
+  assert.equal(res.body.lookup.answer, 'I could not find any page about this.');
+  assert.equal(groqCalls(net).filter((c) => !c.body.tools).length, 0);
+  const again = await call(net, { input: 'Unknown  thing fest' });
+  assert.equal(again.body.cached, true);
+  assert.equal(groqCalls(net).length, 2);
+  const later = await handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: 'unknown thing fest' }),
+    env: { ...SUPA, ...AI_ENV, ...ENV3 }, deps: { fetch: net.fetchImpl, store, now: () => NOW + 4 * 3600 * 1000, fetchPage: page },
+  });
+  assert.equal(later.body.cached, false);
+  assert.equal(groqCalls(net).length, 3);
+});
+
+test('live-search caps, the AI cap and an AI outage give friendly messages', async () => {
+  const quiet = () => agent([toolReply(['web_search', { queries: ['Some new fellowship', 'Some new fellowship 2026'] }]), toolReply(['finish', { answer: 'Nothing found.', matches: [] }])], { opportunities: [] });
+  const none = fakeNet({ ...authRoutes(), 'api.tavily.com': tavilyOk(['https://a.org/1']), 'api.groq.com': quiet() });
+  const capped = await call(none, { input: 'Some new fellowship' }, { LIVE_SEARCH_DAILY_CAP: '0' });
   assert.equal(capped.status, 429);
   assert.match(capped.body.message, /free limit/);
-  const down = await call(net, { mode: 'text', input: DOC });
+  assert.equal(hostCalls(none, 'api.tavily.com'), 0);
+  store.reset();
+  const one = fakeNet({ ...authRoutes(), 'api.tavily.com': tavilyOk(['https://a.org/1']), 'api.groq.com': quiet() });
+  assert.equal((await call(one, { input: 'Another new fellowship' }, { USER_SEARCH_DAILY_CAP: '1' })).status, 200);
+  assert.equal(hostCalls(one, 'api.tavily.com'), 1);
+  store.reset();
+  const few = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'api.groq.com': agent(acmeSteps(), { opportunities: [GOOD] }), 'openrouter.ai': aiReply({ opportunities: [GOOD] }) });
+  const stopped = await call(few, { input: 'Acme Bank graduate trainee' }, { AI_DAILY_CAP: '2' });
+  assert.equal(stopped.status, 503);
+  assert.equal(groqCalls(few).length, 2);
+  assert.equal(hostCalls(few, 'openrouter.ai'), 0);
+  store.reset();
+  const dead = fakeNet({ ...authRoutes(), 'api.groq.com': () => ({ status: 503, text: 'down' }), 'openrouter.ai': () => ({ status: 503, text: 'down' }) });
+  const down = await call(dead, { mode: 'text', input: DOC });
   assert.equal(down.status, 503);
   assert.match(down.body.message, /temporarily unavailable/);
+  const lost = await call(dead, { input: 'Some other fellowship' });
+  assert.equal(lost.status, 503);
+});
+
+test('a repeated name lookup comes from the cache, and answers cached under the old key are ignored', async () => {
+  await store.cachePut('extract', hashKey('extract', 'v2', 'name', 'acme bank graduate trainee'), { result: { title: 'OLD ANSWER' } });
+  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'api.groq.com': agent(acmeSteps(), { opportunities: [GOOD] }) });
+  const first = await call(net, { input: 'Acme Bank graduate trainee' });
+  assert.equal(first.body.cached, false);
+  assert.equal(first.body.result.title, 'Graduate Trainee Officer');
+  const before = net.calls.length;
+  const second = await call(net, { input: 'acme bank  graduate trainee' });
+  assert.equal(second.body.cached, true);
+  assert.equal(second.body.lookup.results.length, 1);
+  assert.equal(net.calls.length, before + 1);
+  const bangla = await call(net, { input: 'Acme Bank graduate trainee', lang: 'bn' });
+  assert.equal(bangla.body.cached, false);
+  assert.match(groqCalls(net).at(-1).body.messages[0].content, /sentences in Bangla/);
+});
+
+test('providers without tool calling get the same loop as plain JSON', async () => {
+  const replies = [
+    { actions: [{ do: 'search', queries: ['Acme Bank graduate trainee'] }] },
+    { actions: [{ do: 'read', urls: [ACME] }] },
+    { do: 'finish', answer: 'Acme Bank is hiring.', matches: [ACME], from_memory: '' },
+    { opportunities: [GOOD] },
+  ];
+  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'openrouter.ai': ({ n }) => aiReply(replies[Math.min(n, replies.length) - 1])() });
+  const res = await handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: 'Acme Bank graduate trainee' }),
+    env: { ...SUPA, OPENROUTER_API_KEY: 'or-test', TAVILY_API_KEY: 'tvly-test' }, deps: { fetch: net.fetchImpl, store, now, fetchPage: page },
+  });
+  assert.equal(res.body.lookup.found, true);
+  const first = net.calls.find((c) => c.host === 'openrouter.ai').body;
+  assert.equal(first.tools, undefined);
+  assert.deepEqual(first.response_format, { type: 'json_object' });
+  assert.match(first.messages[0].content, /"actions"/);
+});
+
+test('a page built with JavaScript is read through the rendered-page reader, inside the Exa cap', async () => {
+  const routes = () => ({
+    ...authRoutes(),
+    'api.tavily.com': () => ({ json: { results: [{ url: ACME, title: 'Acme', content: 'Acme Bank graduate trainee', raw_content: '' }] } }),
+    'api.exa.ai': ({ url }) => (url.pathname === '/contents' ? { json: { results: [{ url: ACME, title: 'Acme', text: DOC }] } } : exaOk()),
+    'api.groq.com': agent(acmeSteps(), { opportunities: [GOOD] }),
+  });
+  const empty = async (u) => ({ url: u, title: '', text: '' });
+  const run = (net, extra = {}) => handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: 'Acme Bank graduate trainee' }),
+    env: { ...SUPA, ...AI_ENV, ...ENV3, ...extra }, deps: { fetch: net.fetchImpl, store, now, fetchPage: empty },
+  });
+  const net = fakeNet(routes());
+  const res = await run(net);
+  assert.equal(res.body.lookup.found, true);
+  assert.deepEqual(net.calls.filter((c) => c.host === 'api.exa.ai').map((c) => c.path), ['/contents']);
+  store.reset();
+  const capped = fakeNet(routes());
+  const blocked = await run(capped, { EXA_MONTHLY_CAP: '0' });
+  assert.equal(hostCalls(capped, 'api.exa.ai'), 0);
+  assert.equal(blocked.body.lookup.found, false);
 });
 
 test('input type is detected', () => {

@@ -566,6 +566,7 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+#variable_conflict use_column
 begin
   if not private.engine_secret_ok(secret) then
     raise exception 'not allowed' using errcode = '42501';
@@ -603,6 +604,7 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+#variable_conflict use_column
 begin
   if not private.engine_secret_ok(secret) then
     raise exception 'not allowed' using errcode = '42501';

@@ -87,6 +87,7 @@ function fromAi(r, raw, kind) {
     field: FIELD[r.field] ? r.field : null,
     org_type: ORG_TYPE[r.org_type] ? r.org_type : null,
     url: safeUrl(r.url) ? r.url : '',
+    source: typeof r.source === 'string' ? r.source.slice(0, 80) : '',
     summary: '',
     evidence: r.evidence && typeof r.evidence === 'object' ? r.evidence : {},
     warnings: Array.isArray(r.warnings) ? r.warnings.filter((w) => typeof w === 'string').slice(0, 6) : [],
@@ -103,20 +104,45 @@ function setParsing(on) {
   $('#rawInput').readOnly = on;
 }
 
+function lookupFrom(res, raw) {
+  const l = res.lookup || {};
+  const list = Array.isArray(l.results) ? l.results : res.result ? [res.result] : [];
+  const link = (s) => (s && safeUrl(s.url) ? { url: s.url, title: String(s.title || '').slice(0, 120) } : null);
+  return {
+    query: raw,
+    answer: typeof l.answer === 'string' ? l.answer.slice(0, 700) : '',
+    memory: typeof l.memory === 'string' ? l.memory.slice(0, 320) : '',
+    items: list.slice(0, 3).map((r) => fromAi(r, raw, 'name')),
+    sources: (Array.isArray(l.sources) ? l.sources : []).map(link).filter(Boolean).slice(0, 6),
+  };
+}
+
+async function aiLookup(raw, extra = {}) {
+  return lookupFrom(await Backend.callApi('/api/extract', { mode: 'name', input: raw, lang: S.lang === 'bn' ? 'bn' : 'en', ...extra }), raw);
+}
+
 async function runParse() {
   if (S.parsing) return;
   const raw = $('#rawInput').value.trim();
   if (!raw) { toast(t('Paste some text, a link or an opportunity name first.'), { tone: 'warn' }); $('#rawInput').focus(); return; }
   const kind = inputKind(raw);
   if (!aiReady()) {
-    if (kind === 'text') { S.parsed = { ...localParse(raw), engine: 'rules' }; renderImport(); return; }
+    if (kind === 'text') { S.lookup = null; S.parsed = { ...localParse(raw), engine: 'rules' }; renderImport(); return; }
     toast(t(kind === 'url' ? 'Sign in to read a link with AI. You can also paste the text of the announcement.' : 'Sign in to look up an opportunity by name. You can also paste the text of the announcement.'), Backend.enabled ? { tone: 'warn', action: t('Sign in'), onAction: () => openAuth('signin'), timeout: 7000 } : { tone: 'warn', timeout: 7000 });
     return;
   }
   setParsing(true);
+  S.lookup = null;
   try {
-    const res = await Backend.callApi('/api/extract', { mode: kind, input: raw });
-    S.parsed = fromAi(res.result || {}, raw, kind);
+    if (kind === 'name') {
+      S.parsed = null;
+      renderImport();
+      S.lookup = await aiLookup(raw);
+      S.parsed = S.lookup.items.length === 1 ? S.lookup.items[0] : null;
+    } else {
+      const res = await Backend.callApi('/api/extract', { mode: kind, input: raw });
+      S.parsed = fromAi(res.result || {}, raw, kind);
+    }
   } catch (e) {
     if (kind === 'text') {
       S.parsed = { ...localParse(raw), engine: 'rules' };
@@ -140,10 +166,44 @@ function parsedNotice(p) {
   if (p.engine === 'rules') return t('Pulled out with simple rules. Check the fields against the original before tracking it.');
   if (p.engine === 'listing') return t('This opportunity is already in Discover. These details come from that listing.');
   const w = p.warnings || [];
-  if (w.some((x) => RED_FLAGS.includes(x))) return t('Warning: this announcement asks for money, uses WhatsApp only or promises a guaranteed result. Real employers and scholarships never charge you to apply.');
+  const flags = w.filter((x) => RED_FLAGS.includes(x));
+  if (flags.length && flags.every((x) => x === 'asks_for_payment') && (p.category === 'competition' || p.category === 'program')) return t('This announcement asks for a payment, such as a registration fee. Make sure it is the official organiser before you pay.');
+  if (flags.length) return t('Warning: this announcement asks for money, uses WhatsApp only or promises a guaranteed result. Real employers and scholarships never charge you to apply.');
   if (w.includes('expired')) return t('The deadline written in the source has already passed.');
   if (w.includes('not_an_opening')) return t('This does not look like one specific opening. Check the source before tracking it.');
   return t('Every value below was checked against the source text. Hover over a value to see the quote. Anything not written in the source is left empty.');
+}
+
+const answerNotes = (l) => `
+  ${l.answer ? `<div class="notice">${icon('sparkles', 15)}<span>${esc(l.answer)}</span></div>` : ''}
+  ${l.memory ? `<div class="notice">${icon('info', 15)}<span><b>${esc(t('From AI knowledge, not verified, may be outdated'))}:</b> ${esc(l.memory)}</span></div>` : ''}`;
+
+const pickDue = (p) => (p.deadline && daysLeft(p.deadline) < 0 ? `${icon('clock', 13)}${esc(t('Closed on {date}', { date: fmtDate(p.deadline, true) }))}` : closingText(p));
+
+const pickCard = (p, i) => `
+  <button type="button" class="card rec-card" data-action="pick-result" data-idx="${i}">
+    <span class="rec-top">${logo(p.org || p.title)}<span class="rec-kind">${esc(t(CAT_SHORT[p.category] || 'Opportunity'))}</span></span>
+    <b>${esc(p.title)}</b>
+    <small>${esc([p.org, p.source].filter(Boolean).join(' · '))}</small>
+    <span class="rec-due">${pickDue(p)}</span>
+  </button>`;
+
+const pagesRead = (l) => (l.sources.length ? `<p class="muted small pages-read">${esc(t('Pages the AI read'))}: ${l.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0])}</a>`).join(', ')}</p>` : '');
+
+function renderLookup(box, l) {
+  box.innerHTML = `
+    <div class="panel-head"><h2>${esc(t('Result'))}</h2><span class="engine-pill">${icon('sparkles', 14)}${esc(t('Searched and read by AI'))}</span></div>
+    <div class="panel-body">
+      ${answerNotes(l)}
+      ${l.items.length
+        ? `<div class="section-label">${esc(t('Pick one to see the details'))}</div><div class="pick-list">${l.items.map(pickCard).join('')}</div>`
+        : `<div class="empty empty-plain">
+            <div class="em-icon">${icon('search', 20)}</div>
+            <h3>${esc(t('No matching opportunity was found'))}</h3>
+            <p>${esc(t('The AI searched the web and found no page it could confirm. Posts that exist only on Facebook cannot be read. Paste the text of the post, or its link, instead.'))}</p>
+          </div>`}
+      ${pagesRead(l)}
+    </div>`;
 }
 
 function renderImport() {
@@ -151,6 +211,14 @@ function renderImport() {
   $('#sourcePill').textContent = aiReady() ? t('Sent to a free AI service to read') : t('Stays on your device');
   const box = $('#parseResult');
   const p = S.parsed;
+  const l = S.lookup;
+  if (!p && S.parsing && inputKind($('#rawInput').value) === 'name') {
+    box.innerHTML = `<div class="panel-head"><h2>${esc(t('Result'))}</h2><span class="engine-pill">${icon('sparkles', 14)}${esc(t('Searched and read by AI'))}</span></div><div class="panel-body">
+      <div class="notice">${icon('search', 15)}<span>${esc(t('The AI is searching the web and reading pages. This can take up to a minute.'))}</span></div>
+      <div class="skel-lines"><div class="skeleton w70"></div><div class="skeleton w55"></div><div class="skeleton w40"></div></div></div>`;
+    return;
+  }
+  if (!p && l) { renderLookup(box, l); return; }
   if (!p) {
     box.innerHTML = `<div class="panel-head"><h2>${esc(t('Result'))}</h2></div><div class="panel-body">
       <div class="empty empty-plain">
@@ -163,6 +231,8 @@ function renderImport() {
   box.innerHTML = `
     <div class="panel-head"><h2>${esc(t('Result'))}</h2><span class="engine-pill">${icon(p.engine === 'rules' ? 'check' : 'sparkles', 14)}${esc(p.engine === 'rules' ? t('Read in your browser') : p.engine === 'listing' ? t('From Discover') : t('Read by AI, checked against the source'))}</span></div>
     <div class="panel-body">
+      ${l && l.items.length > 1 ? `<button type="button" class="link-btn back-results" data-action="back-results">${esc(t('← All results'))}</button>` : ''}
+      ${l ? answerNotes(l) : ''}
       <div class="notice">${icon((p.warnings || []).some((x) => RED_FLAGS.includes(x)) ? 'alert' : 'info', 15)}<span>${esc(parsedNotice(p))}</span></div>
       <div class="app-head parsed-head">
         ${logo(p.org)}
@@ -194,6 +264,7 @@ function publishParsed(alsoTrack) {
   S.custom = S.custom.slice(0, 100);
   saveStore();
   S.parsed = null;
+  S.lookup = null;
   $('#rawInput').value = '';
   if (alsoTrack) track(opp.id);
   else toast(t('{title} added to Discover', { title: opp.title }), { tone: 'ok', action: t('View'), onAction: () => go('discover') });
@@ -617,6 +688,9 @@ function bind() {
       else if (action === 'remove') removeApp(id);
       else if (action === 'track') track(id);
       else if (action === 'open') openDetail(id);
+      else if (action === 'pick-result') { S.parsed = (S.lookup && S.lookup.items[Number(idx)]) || null; renderImport(); }
+      else if (action === 'back-results') { S.parsed = null; renderImport(); }
+      else if (action === 'live-search') liveSearch();
       else if (action === 'publish') publishParsed(false);
       else if (action === 'publish-track') publishParsed(true);
       else if (action === 'reset-filters') clearFilters();

@@ -27,7 +27,7 @@ function detailRows(o) {
 }
 
 function renderDetail() {
-  const o = allOpps().find((x) => x.id === detailId);
+  const o = findOpp(detailId);
   const body = $('#detailBody');
   if (!o) {
     body.innerHTML = `<div class="empty empty-plain"><div class="em-icon">${icon('search', 20)}</div><h3>${esc(t('This listing is no longer open'))}</h3><p>${esc(t('It may have closed or been removed.'))}</p></div>`;
@@ -57,7 +57,7 @@ function renderDetail() {
       <button type="button" class="btn btn-secondary" data-action="share" data-id="${id}">${icon('share', 16)}${esc(t('Share'))}</button>
       ${o.deadline ? `<button type="button" class="btn btn-secondary" data-action="calendar" data-id="${id}">${icon('calendar', 16)}${esc(t('Add to calendar'))}</button>` : ''}
     </div>
-    ${o.custom ? '' : `
+    ${o.custom || o.live ? '' : `
     <div class="report-box">
       ${reported
         ? `<p class="muted small">${icon('flag', 13)} ${esc(t('You reported this listing. Thank you.'))}</p>`
@@ -82,7 +82,7 @@ function openDetail(id) {
 }
 
 async function shareListing(id) {
-  const o = allOpps().find((x) => x.id === id);
+  const o = findOpp(id);
   if (!o) return;
   const text = `${o.title}${o.org ? ` — ${o.org}` : ''}`;
   const url = safeUrl(o.url) ? o.url : location.origin + location.pathname;
@@ -120,7 +120,7 @@ function calendarFile(o) {
 }
 
 function addToCalendar(id) {
-  const o = allOpps().find((x) => x.id === id);
+  const o = findOpp(id);
   if (!o || !isIso(o.deadline)) return;
   const blob = new Blob([calendarFile(o)], { type: 'text/calendar;charset=utf-8' });
   const a = document.createElement('a');
@@ -134,7 +134,7 @@ function addToCalendar(id) {
 }
 
 async function sendReport(form) {
-  const o = allOpps().find((x) => x.id === detailId);
+  const o = findOpp(detailId);
   if (!o) return;
   const msg = $('#reportMsg');
   if (!signedIn()) {

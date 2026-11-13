@@ -173,7 +173,7 @@ function renderTracker() {
 }
 
 function track(id) {
-  const o = allOpps().find((x) => x.id === id);
+  const o = findOpp(id);
   if (!o || isTracked(id)) return;
   if (S.registered.filter((r) => !r.sample).length >= LIMITS.apps) { toast(t('You can track at most {n} applications.', { n: LIMITS.apps }), { tone: 'warn' }); return; }
   const deadline = o.deadline || isoIn(30);
