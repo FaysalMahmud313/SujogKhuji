@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node scripts/build-config.mjs",
     "config:local": "node --env-file=.env scripts/build-config.mjs --local",
-    "test": "node --test server/"
+    "test": "node --test server/auth-email.test.js server/engine.test.js"
   },
   "dependencies": {
     "nodemailer": "^10.5.0"
