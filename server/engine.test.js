@@ -198,6 +198,10 @@ test('hallucinated deadline, funding and pay are thrown away', async () => {
   assert.equal(r.exp_min, null);
   assert.deepEqual(r.steps_json, []);
   for (const f of ['deadline', 'funding', 'pay', 'country', 'experience_min_years']) assert.equal(r.evidence[f].status, 'rejected');
+  const fee = 'Team registration fee: BDT 100 per team. Prize pool: BDT 50,000.';
+  const check = (pay, quote) => verifyFacts(validateShape({ ...GOOD, pay: fact(pay, quote) }).value, [{ url: null, text: `${DOC}\n${fee}` }]).facts.pay;
+  assert.equal(check('BDT 100 registration fee per team', 'Team registration fee: BDT 100 per team'), null);
+  assert.equal(check('BDT 50,000 prize pool', 'Prize pool: BDT 50,000'), 'BDT 50,000 prize pool');
 });
 
 test('an invalid AI reply moves to the next free model, at most three calls', async () => {
@@ -358,6 +362,27 @@ test('a link is read safely and extracted', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body.mode, 'url');
   assert.equal(res.body.result.url, 'https://acme.com/careers/trainee');
+});
+
+test('a pasted link to a page built with JavaScript is read through the rendered-page reader', async () => {
+  const link = 'https://fest.example.org/';
+  const routes = () => ({ ...authRoutes(), 'api.groq.com': aiReply(GOOD), 'api.exa.ai': () => ({ json: { results: [{ url: link, title: 'Acme careers', text: DOC }] } }) });
+  const run = (net, extra = {}) => handleExtract({
+    method: 'POST', headers: { authorization: 'Bearer good-token-0000000000000000' }, body: JSON.stringify({ input: link }),
+    env: { ...SUPA, ...AI_ENV, EXA_API_KEY: 'exa-test', ...extra }, deps: { fetch: net.fetchImpl, store, now, fetchPage: async (u) => ({ url: u, title: 'Acme careers', text: '' }) },
+  });
+  const net = fakeNet(routes());
+  const res = await run(net);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.result.deadline, '2026-12-30');
+  assert.equal(res.body.result.url, link);
+  assert.deepEqual(net.calls.filter((c) => c.host === 'api.exa.ai').map((c) => c.path), ['/contents']);
+  store.reset();
+  const capped = fakeNet(routes());
+  const blocked = await run(capped, { EXA_MONTHLY_CAP: '0' });
+  assert.equal(blocked.status, 422);
+  assert.equal(blocked.body.error, 'empty_page');
+  assert.equal(capped.calls.filter((c) => c.host === 'api.exa.ai').length, 0);
 });
 
 test('a name already in Discover is answered from the database, with no search or AI', async () => {

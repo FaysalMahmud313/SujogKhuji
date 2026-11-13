@@ -159,7 +159,7 @@ export function systemPrompt(today, many = false) {
     '2. Every non-null value needs "quote": a short exact passage (10 to 200 characters) copied character for character from that document which states the fact, and "source": the document number.',
     '3. Never guess or calculate deadlines, funding, pay or experience. Give a date only when day, month and year are all written; format it YYYY-MM-DD.',
     '4. funding is "full" only when the text says fully funded or equivalent, "partial" for a partial scholarship or tuition waiver, otherwise null.',
-    '5. pay is the salary, stipend or prize exactly as written, at most 60 characters.',
+    '5. pay is the salary, stipend or prize the applicant receives, exactly as written, at most 60 characters. A fee the applicant has to pay (registration, application or entry fee) is never pay.',
     '6. experience_min_years and experience_max_years are whole numbers of required work experience; use 0 only when the text says freshers or no experience are welcome.',
     `7. Allowed values: category ${ENUMS.category.join('|')}; job_type ${ENUMS.job_type.join('|')}; work_mode ${ENUMS.work_mode.join('|')}; education ${ENUMS.education.join('|')} (the minimum required); field ${ENUMS.field.join('|')}; org_type ${ENUMS.org_type.join('|')}. country is the English country name where the work or study happens.`,
     '8. is_opportunity is a plain true or false (not an object). It is false when the documents are not about one specific open opportunity (for example a news story, a list of many openings, a tips article, or results of a finished competition).',
@@ -242,6 +242,7 @@ function supports(field, value, quote) {
   if (field === 'deadline') return datesIn(q).has(value);
   if (field === 'funding') return value === 'full' ? FULL.test(q) : PARTIAL.test(q);
   if (field === 'pay') {
+    if (/\b(fees?|charges?|deposit)\b/i.test(value)) return false;
     if (/unpaid/i.test(value)) return /unpaid|no (salary|stipend|pay)/i.test(q);
     const need = digitsOf(value).filter((d) => d.replace('.', '').length >= 2);
     const have = new Set(digitsOf(q));

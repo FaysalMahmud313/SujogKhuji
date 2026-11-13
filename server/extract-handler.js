@@ -1,5 +1,6 @@
 import { safeFetchPage, UrlError, requestJson, checkUrl } from './engine/http.js';
 import { lookupOpportunity } from './engine/lookup.js';
+import { readRendered } from './engine/search.js';
 import { extractOpportunity, normalizeText } from './engine/extract.js';
 import { capFrom, hashKey, makeStore } from './engine/store.js';
 
@@ -73,8 +74,12 @@ async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, no
     return out;
   }
   if (mode === 'url') {
-    const page = await fetchPage(input);
-    if (!page.text || page.text.length < 120) return { error: 'empty_page' };
+    let page = await fetchPage(input);
+    if (!page.text || page.text.trim().length < 120) {
+      const got = await readRendered(input, { env, store, fetchImpl, now }).catch(() => null);
+      if (got && got.outcome === 'ok') page = { url: input, title: got.title || page.title || null, text: got.text };
+    }
+    if (!page.text || page.text.trim().length < 120) return { error: 'empty_page' };
     return extractOpportunity({ docs: [page], env, store, fetchImpl, now });
   }
   const listing = skipListing ? null : await findListing(input, env, fetchImpl).catch(() => null);
