@@ -250,7 +250,7 @@ function loadInstitutions() {
       .then((res) => (res.ok ? res.json() : []))
       .then((list) => {
         S.institutions = Array.isArray(list) ? list : [];
-        if (S.institutions.length) $('#instHint').textContent = t('{n} public & private universities and National University colleges.', { n: S.institutions.length.toLocaleString() });
+        if (S.institutions.length) $('#instHint').textContent = t('{n} public and private universities. Pick National University or Other if yours is not listed.', { n: S.institutions.length.toLocaleString() });
       })
       .catch(() => { institutionsLoading = null; });
   }
@@ -278,9 +278,11 @@ function closeCombo() { COMBOS.forEach((c) => c.close()); }
 
 function institutionCombo({ wrap, input, list, clear }) {
   const box = $(wrap), field = $(input), menu = $(list), clearBtn = clear ? $(clear) : null;
+  const basePlaceholder = field.getAttribute('placeholder') || '';
   let results = [];
   let hl = 0;
   let untouched = '';
+  let manual = false;
   const isOpen = () => menu.classList.contains('open');
   const close = () => {
     menu.classList.remove('open');
@@ -292,33 +294,49 @@ function institutionCombo({ wrap, input, list, clear }) {
     opts.forEach((o, i) => { o.classList.toggle('hl', i === hl); o.setAttribute('aria-selected', String(i === hl)); });
     if (opts[hl]) { field.setAttribute('aria-activedescendant', opts[hl].id); opts[hl].scrollIntoView({ block: 'nearest' }); }
   };
+  const option = (it, i) => {
+    const m = it.other ? null : it.name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+    return `<button type="button" tabindex="-1" class="combo-opt ${it.pinned ? 'pinned' : ''}" role="option" id="${menu.id}-${i}" data-i="${i}"><span>${esc(it.other ? t('Other (type your own)') : m ? m[1] : it.name)}</span>${m ? `<span class="acr">${esc(m[2])}</span>` : ''}</button>`;
+  };
   const open = async () => {
+    if (manual) return;
     await loadInstitutions();
-    if (document.activeElement !== field) return;
+    if (document.activeElement !== field || manual) return;
+    const loaded = !!(S.institutions && S.institutions.length);
     const { items, total } = searchInstitutions(field.value === untouched ? '' : field.value);
-    results = items;
+    const pinned = [{ name: 'National University (NU)', pinned: true }, { name: '', other: true, pinned: true }];
+    results = [...items, ...pinned];
     hl = 0;
-    const id = menu.id;
-    menu.innerHTML = !S.institutions || !S.institutions.length
+    const note = !loaded
       ? `<div class="combo-empty">${esc(t('Suggestions could not be loaded. You can still type the name.'))}</div>`
       : items.length
-        ? items.map((it, i) => {
-            const m = it.name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-            return `<button type="button" tabindex="-1" class="combo-opt" role="option" id="${id}-${i}" data-i="${i}"><span>${esc(m ? m[1] : it.name)}</span>${m ? `<span class="acr">${esc(m[2])}</span>` : ''}</button>`;
-          }).join('') + `<div class="combo-foot">${esc(total > items.length ? t('Showing {a} of {b}. Keep typing to narrow it down.', { a: items.length, b: total.toLocaleString() }) : plural(total, 'result'))}</div>`
-        : `<div class="combo-empty">${esc(t('No institution matches “{q}”. You can still save what you typed.', { q: field.value }))}</div>`;
+        ? `<div class="combo-foot">${esc(total > items.length ? t('Showing {a} of {b}. Keep typing to narrow it down.', { a: items.length, b: total.toLocaleString() }) : plural(total, 'result'))}</div>`
+        : `<div class="combo-empty">${esc(t('No university matches “{q}”. Pick one of these, or keep what you typed.', { q: field.value }))}</div>`;
+    menu.innerHTML = items.map(option).join('') + note + `<div class="combo-pinned">${pinned.map((it, i) => option(it, items.length + i)).join('')}</div>`;
     menu.classList.add('open');
     field.setAttribute('aria-expanded', 'true');
     paint();
   };
+  const setManual = (on) => {
+    manual = on;
+    field.setAttribute('placeholder', on ? t('Type your institution name') : t(basePlaceholder));
+  };
   const pick = (i) => {
     const it = results[i];
     if (!it) return;
+    if (it.other) {
+      field.value = '';
+      untouched = '';
+      close();
+      setManual(true);
+      field.focus();
+      return;
+    }
     field.value = it.name;
     untouched = it.name;
     close();
   };
-  field.addEventListener('focus', () => { untouched = field.value; field.select(); open(); });
+  field.addEventListener('focus', () => { untouched = field.value; if (!manual) field.select(); open(); });
   field.addEventListener('input', open);
   field.addEventListener('blur', () => setTimeout(() => { if (!box.contains(document.activeElement)) close(); }, 120));
   field.addEventListener('keydown', (e) => {
@@ -330,7 +348,7 @@ function institutionCombo({ wrap, input, list, clear }) {
     else if (e.key === 'Tab') close();
   });
   menu.addEventListener('mousedown', (e) => { e.preventDefault(); const o = e.target.closest('.combo-opt'); if (o) pick(Number(o.dataset.i)); });
-  if (clearBtn) clearBtn.addEventListener('click', () => { field.value = ''; untouched = ''; field.focus(); open(); });
+  if (clearBtn) clearBtn.addEventListener('click', () => { field.value = ''; untouched = ''; setManual(false); field.focus(); open(); });
   const api = { close, open };
   COMBOS.push(api);
   return api;
@@ -496,7 +514,6 @@ window.addEventListener('beforeinstallprompt', (e) => {
 window.addEventListener('appinstalled', () => { $('#installBtn').hidden = true; installEvent = null; toast(t('Installed. Find SujogKhuji on your home screen.'), { tone: 'ok' }); });
 
 function bind() {
-  $$('.logo[data-icon]').forEach((el) => { el.innerHTML = icon('logo', 16, 2.4); el.removeAttribute('data-icon'); });
   $$('[data-icon]').forEach((el) => { el.outerHTML = icon(el.dataset.icon, Number(el.dataset.size) || 16); });
   const year = new Date().getFullYear();
   const years = Array.from({ length: 14 }, (_, i) => year - 7 + i).map((y) => `<option value="${y}">${y}</option>`).join('');

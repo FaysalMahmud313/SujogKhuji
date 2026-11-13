@@ -18,7 +18,9 @@ const SHELL = [
   './manifest.webmanifest',
   './fonts/geist-latin.woff2',
   './fonts/geist-mono-latin.woff2',
-  './icons/favicon.svg',
+  './icons/favicon-32.png',
+  './icons/favicon-48.png',
+  './icons/logo.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];

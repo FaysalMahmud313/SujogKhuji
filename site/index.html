@@ -13,7 +13,9 @@
   <meta name="apple-mobile-web-app-title" content="SujogKhuji" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="app.css" />
@@ -33,7 +35,7 @@
   <div class="app">
     <aside class="sidebar" aria-label="Main navigation" data-i18n-attr="aria-label">
       <div class="brand">
-        <div class="logo" data-icon="logo"></div>
+        <img class="logo" src="icons/logo.png" alt="" width="28" height="28" />
         <div class="brand-name">Sujog<span>Khuji</span></div>
       </div>
 
@@ -56,7 +58,7 @@
       <header class="topbar">
         <div class="crumbs"><span>SujogKhuji</span><span data-icon="chevronRight" data-size="14"></span><b id="crumbPage">Discover</b></div>
         <div class="mobile-brand">
-          <div class="logo" data-icon="logo"></div>
+          <img class="logo" src="icons/logo.png" alt="" width="28" height="28" />
           <div class="brand-name">Sujog<span>Khuji</span></div>
         </div>
         <div class="topbar-actions">
@@ -259,7 +261,7 @@
                     <button class="icon-btn clear" id="instClear" type="button" aria-label="Clear institution" data-i18n-attr="aria-label"><span data-icon="x" data-size="14"></span></button>
                     <div class="combo-list" id="instList" role="listbox"></div>
                   </div>
-                  <span class="field-hint" id="instHint" data-i18n>Public &amp; private universities and National University colleges.</span>
+                  <span class="field-hint" id="instHint" data-i18n>Public and private universities. Pick National University or Other if yours is not listed.</span>
                 </div>
                 <div class="cols-3">
                   <label class="field">
@@ -407,7 +409,7 @@
   <dialog class="modal" id="flow" aria-labelledby="flowTitle">
     <form class="modal-body" id="flowForm" novalidate>
       <button type="button" class="icon-btn modal-close" id="flowClose" aria-label="Close" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
-      <div class="modal-logo logo" data-icon="logo"></div>
+      <img class="modal-logo logo" src="icons/logo.png" alt="" width="36" height="36" />
       <ol class="stepper" id="flowSteps" hidden></ol>
       <h2 id="flowTitle"></h2>
       <p class="modal-sub" id="flowSub"></p>
