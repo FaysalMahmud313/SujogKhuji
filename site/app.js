@@ -619,6 +619,7 @@ function applyTheme() {
 mq.addEventListener?.('change', () => S.theme === 'system' && applyTheme());
 
 const TAB_TITLES = { discover: 'Discover', tracker: 'My applications', import: 'Add from text', profile: 'Profile & settings' };
+const HOME_TITLE = document.title;
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const cut = raw.indexOf('?');
@@ -634,7 +635,7 @@ function go(tab, { push = true } = {}) {
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   $('#crumbPage').textContent = t(TAB_TITLES[tab]);
-  document.title = `${t(TAB_TITLES[tab])} · SujogKhuji`;
+  document.title = tab === 'discover' ? HOME_TITLE : `${t(TAB_TITLES[tab])} · SujogKhuji`;
   $('#searchToggle').hidden = tab !== 'discover';
   if (tab !== 'discover') closeSearch();
   if (push) syncUrl();

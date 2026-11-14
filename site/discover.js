@@ -275,8 +275,8 @@ function oppCard(o) {
         <span class="tag">${icon(o.region === 'BD' ? 'pin' : 'globe', 13)}${esc(o.country || t(REGION[o.region] || 'Global'))}</span>
         <span class="tag">${icon(CAT_ICON[o.category] || 'briefcase', 13)}${esc(t(CAT_SHORT[o.category] || 'Opportunity'))}</span>
         ${o.funding ? `<span class="tag ${o.funding === 'full' ? 'tag-funded' : 'tag-partial'}">${icon('star', 13)}${esc(t(FUNDING[o.funding]))}</span>` : ''}
-        ${exp ? `<span class="tag ${exp.cls}">${icon('user', 13)}${esc(exp.text)}</span>` : ''}
-        ${WORK_MODE[o.work_mode] ? `<span class="tag">${icon(o.work_mode === 'remote' ? 'laptop' : 'pin', 13)}${esc(t(WORK_MODE[o.work_mode]))}</span>` : ''}
+        ${exp ? `<span class="tag tag-exp ${exp.cls}">${icon('user', 13)}${esc(exp.text)}</span>` : ''}
+        ${WORK_MODE[o.work_mode] ? `<span class="tag tag-mode">${icon(o.work_mode === 'remote' ? 'laptop' : 'pin', 13)}${esc(t(WORK_MODE[o.work_mode]))}</span>` : ''}
         ${trustBadge(o)}
       </div>
       ${o.summary ? `<p class="opp-summary">${esc(o.summary)}</p>` : ''}

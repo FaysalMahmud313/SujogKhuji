@@ -201,6 +201,18 @@ paste an announcement, a link and a name, and hover over a value in the result t
 came from. In Discover, type something that is not in the listings and press Enter to see the
 live AI search.
 
+### 10. Help Google find the site (optional)
+The home page already has a title, description, canonical link and sharing tags, and `site/robots.txt`
+lets search engines in. To tell Google the site is yours:
+1. Open **Google Search Console → Add property → URL prefix** and enter `https://sujogkhuji.vercel.app/`.
+2. Choose **HTML tag**. Google shows a line like `<meta name="google-site-verification" content="abc123" />`.
+3. In `site/index.html`, find the empty `<meta name="google-site-verification" content="" />` and paste the
+   code between the quotes of `content`. Push, wait for Vercel to deploy, then click **Verify**.
+4. In Search Console, use **URL inspection → Request indexing** for the home page.
+
+If you move to your own domain, change the three `https://sujogkhuji.vercel.app/` addresses in the
+`<head>` of `site/index.html`.
+
 ---
 
 ## Use it

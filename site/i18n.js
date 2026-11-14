@@ -154,6 +154,7 @@ const I18N_BN = {
   'Try another category, region or fewer filters.': 'অন্য ধরন, অঞ্চল বা কম ফিল্টার দিয়ে দেখুন।',
   'Some listings are hidden because they ask for more experience than yours.': 'কিছু সুযোগ লুকানো আছে, কারণ সেগুলোতে আপনার চেয়ে বেশি অভিজ্ঞতা চাওয়া হয়েছে।',
   'Search the web for “{q}”': 'ওয়েবে “{q}” খুঁজুন',
+  'SujogKhuji (সুযোগ খুঁজি) is a free site for students and job seekers in Bangladesh. It finds open jobs, internships, scholarships, hackathons and fellowships on the web every day, and helps you track every deadline.': 'সুযোগ খুঁজি (SujogKhuji) বাংলাদেশের শিক্ষার্থী ও চাকরিপ্রার্থীদের জন্য একটি ফ্রি সাইট। এটি প্রতিদিন ওয়েব থেকে খোলা চাকরি, ইন্টার্নশিপ, বৃত্তি, হ্যাকাথন ও ফেলোশিপ খুঁজে আনে এবং প্রতিটি ডেডলাইন মনে রাখতে সাহায্য করে।',
   'Updated {when}': '{when} আপডেট হয়েছে',
   'Close search': 'সার্চ বন্ধ করুন',
   'Sync now': 'এখনই সিঙ্ক করুন',

@@ -912,3 +912,44 @@ img.logo { display: block; background: none; box-shadow: none; border-radius: 0;
 @media (max-width: 380px) {
   .mobile-brand .brand-name { display: none; }
 }
+.opp-foot { flex-wrap: wrap; row-gap: 10px; }
+.opp-meta { flex: 1 1 auto; }
+.opp-actions { margin-left: auto; }
+.closing { white-space: normal; }
+.site-note { margin: 28px 0 0; max-width: 560px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+@media (max-width: 900px) {
+  .topbar { height: calc(56px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  .content { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+  #toasts, .save-bar { bottom: calc(76px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 640px) {
+  body.search-open .search { height: calc(56px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  body.search-open .search > .i { top: calc(50% + env(safe-area-inset-top) / 2); }
+  .drawer-body { padding-top: calc(22px + env(safe-area-inset-top)); padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .drawer-close { top: calc(12px + env(safe-area-inset-top)); }
+  .content { padding-top: 14px; }
+  .grid { gap: 12px; }
+  .opp-card { padding: 14px; gap: 12px; }
+  .opp-card .tag-exp, .opp-card .tag-mode { display: none; }
+  .opp-foot { padding-top: 12px; }
+  .btn { min-height: 44px; }
+  .btn-sm { height: 44px; padding: 0 14px; }
+  .input, .select, .sort-wrap .select, .table-tools .select, .add-step .input { height: 44px; }
+  .seg button { height: 40px; }
+  .chip, .examples .chip { height: 40px; padding: 0 14px; }
+  .swatch { width: 40px; height: 40px; }
+  .icon-btn { width: 44px; height: 44px; }
+  .switch::before { content: ''; position: absolute; inset: -12px -5px; }
+  .switch-row { min-height: 44px; }
+  .result-row, .saved-row, .active-row { margin-bottom: 10px; }
+  .rec { margin-bottom: 6px; }
+  .rec-strip { padding-bottom: 2px; }
+  .opp-foot { align-items: center; }
+  .topbar .install-btn { width: 44px; padding: 0; justify-content: center; }
+  .combo > .i { top: 22px; }
+  .combo .input { padding-right: 46px; }
+  .combo .clear { top: 0; right: 0; width: 44px; height: 44px; }
+  .combo-opt { min-height: 44px; }
+  .title-btn { display: inline-block; min-height: 44px; }
+  .site-note { margin-top: 20px; }
+}
