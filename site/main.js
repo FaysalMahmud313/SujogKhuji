@@ -117,6 +117,36 @@ function lookupFrom(res, raw) {
   };
 }
 
+const LIVE_NOTE_KEY = 'sujog-live-note';
+let liveNoteBusy = false;
+
+async function liveNote() {
+  let seen = false;
+  try { seen = localStorage.getItem(LIVE_NOTE_KEY) === '1'; } catch { seen = false; }
+  if (seen) return true;
+  if (liveNoteBusy) return false;
+  liveNoteBusy = true;
+  try {
+    let n = 0;
+    try {
+      const res = await Backend.callApi('/api/extract', { mode: 'limits' }, { timeout: 8000 });
+      n = Math.floor(Number(res && res.limits && res.limits.lookups_per_day)) || 0;
+    } catch {
+      n = 0;
+    }
+    if (n < 1) return true;
+    const go = await askNote(
+      t('Live AI search'),
+      t('You can run up to {n} live AI searches a day. The count starts again every day at 6 AM Bangladesh time. Searching the saved listings is always free and unlimited.', { n }),
+      t('Search now'),
+    );
+    try { localStorage.setItem(LIVE_NOTE_KEY, '1'); } catch { }
+    return go;
+  } finally {
+    liveNoteBusy = false;
+  }
+}
+
 async function aiLookup(raw, extra = {}) {
   return lookupFrom(await Backend.callApi('/api/extract', { mode: 'name', input: raw, lang: S.lang === 'bn' ? 'bn' : 'en', ...extra }), raw);
 }
@@ -131,6 +161,7 @@ async function runParse() {
     toast(t(kind === 'url' ? 'Sign in to read a link with AI. You can also paste the text of the announcement.' : 'Sign in to look up an opportunity by name. You can also paste the text of the announcement.'), Backend.enabled ? { tone: 'warn', action: t('Sign in'), onAction: () => openAuth('signin'), timeout: 7000 } : { tone: 'warn', timeout: 7000 });
     return;
   }
+  if (kind === 'name' && !(await liveNote())) return;
   setParsing(true);
   S.lookup = null;
   try {
@@ -260,15 +291,37 @@ function publishParsed(alsoTrack) {
   if (!p) return;
   const opp = { ...clone(p), id: 'custom-' + Date.now().toString(36), source: 'you', custom: true, verified: false, added: new Date().toISOString() };
   if (!opp.deadline) opp.deadline = null;
-  S.custom.unshift(opp);
-  S.custom = S.custom.slice(0, 100);
-  saveStore();
+  CustomSync.add(S, opp);
+  pushCustom();
   S.parsed = null;
   S.lookup = null;
   $('#rawInput').value = '';
   if (alsoTrack) track(opp.id);
   else toast(t('{title} added to Discover', { title: opp.title }), { tone: 'ok', action: t('View'), onAction: () => go('discover') });
   renderAll();
+}
+
+function removeCustom(id) {
+  const item = CustomSync.remove(S, id);
+  if (!item) return;
+  closeDetail();
+  pushCustom();
+  renderAll();
+  toast(t('Removed {title}', { title: item.title }), {
+    action: t('Undo'),
+    timeout: 6000,
+    onAction: () => { CustomSync.add(S, { ...item, rev: null }); pushCustom(); renderAll(); },
+  });
+}
+
+async function syncNow() {
+  if (!signedIn() || S.syncing) return;
+  if (!S.online) { toast(t('You are offline. Changes are saved on this device and sync when you are back online.'), { tone: 'warn' }); return; }
+  const before = S.syncedAt;
+  await flushPending();
+  await refreshAccount({ force: true });
+  if (S.syncedAt !== before) toast(t('Everything is synced.'), { tone: 'ok' });
+  else toast(t("Couldn't sync right now. Try again in a moment."), { tone: 'warn' });
 }
 
 function setExpMode(experienced) {
@@ -373,6 +426,7 @@ async function importData(file) {
     renderAll();
     if (signedIn()) {
       for (const it of incoming) queue('upsert', it.opportunity_id);
+      for (const o of S.custom) if (!S.pending.customUpsert.includes(o.id)) S.pending.customUpsert.push(o.id);
       S.pending.profile = true;
       await flushPending();
     }
@@ -703,6 +757,9 @@ function bind() {
       else if (action === 'open-auth') { closeDetail(); openAuth(a.dataset.mode || 'signup'); }
       else if (action === 'edit-about') showFlow('about');
       else if (action === 'sign-out') signOut();
+      else if (action === 'sync-now') syncNow();
+      else if (action === 'open-search') openSearch();
+      else if (action === 'close-search') closeSearch();
       else if (action === 'show-add-step') {
         const form = $(`.add-step[data-id="${CSS.escape(id)}"]`);
         if (form) { form.hidden = !form.hidden; if (!form.hidden) form.querySelector('input').focus(); }
@@ -779,13 +836,14 @@ function bind() {
     go(tab, { push: false });
     renderDiscover();
   });
-  window.addEventListener('online', () => { S.online = true; renderChrome(); flushPending(); if (S.data.error) loadData(); });
+  window.addEventListener('online', () => { S.online = true; renderChrome(); flushPending().then(() => refreshAccount()); if (S.data.error) loadData(); });
   window.addEventListener('offline', () => { S.online = false; renderChrome(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { Backend.touch(); Backend.reload(); reloadStore(); flushPending(); }
+    if (document.visibilityState === 'visible') { Backend.touch(); Backend.reload(); reloadStore(); flushPending().then(() => refreshAccount()); }
     else parkTimers();
   });
   window.addEventListener('pagehide', parkTimers);
+  setInterval(() => { if (document.visibilityState === 'visible') refreshAccount(); }, 5 * 60000);
   if (channel) {
     channel.addEventListener('message', (e) => {
       if (!e.data || typeof e.data.type !== 'string') return;

@@ -23,6 +23,7 @@
   <script src="config.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="backend.js" defer></script>
+  <script src="sync.js" defer></script>
   <script src="app.js" defer></script>
   <script src="discover.js" defer></script>
   <script src="tracker.js" defer></script>
@@ -63,6 +64,7 @@
         </div>
         <div class="topbar-actions">
           <button type="button" class="btn btn-sm btn-secondary install-btn" id="installBtn" hidden><span data-icon="download" data-size="14"></span><span data-i18n>Install app</span></button>
+          <button type="button" class="icon-btn search-toggle" id="searchToggle" data-action="open-search" title="Search opportunities" aria-label="Search opportunities" data-i18n-attr="title,aria-label" aria-expanded="false" aria-controls="fSearch"><span data-icon="search"></span><span class="pip"></span></button>
           <button type="button" class="icon-btn bell" id="bellBtn" title="Upcoming deadlines" aria-label="Upcoming deadlines" data-i18n-attr="title,aria-label"><span data-icon="bell"></span><span class="pip"></span></button>
           <button type="button" class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme" data-i18n-attr="title,aria-label"></button>
           <button type="button" class="icon-btn signout-quick" data-action="sign-out" title="Sign out" aria-label="Sign out" data-i18n-attr="title,aria-label" hidden><span data-icon="logout"></span></button>
@@ -85,6 +87,7 @@
               <span data-icon="search"></span>
               <input class="input" id="fSearch" type="search" placeholder="Search: company, role, country, field" data-i18n-attr="placeholder" autocomplete="off" enterkeyhint="search" maxlength="80" />
               <span class="kbd" aria-hidden="true">/</span>
+              <button type="button" class="icon-btn search-close" data-action="close-search" aria-label="Close search" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
             </label>
             <div class="seg" id="fRegion" role="group" aria-label="Region" data-i18n-attr="aria-label">
               <button type="button" data-v="ALL" data-i18n>All</button>
@@ -573,6 +576,17 @@
       <div class="modal-foot modal-foot-row">
         <button type="submit" class="btn btn-primary" value="ok" data-i18n>Save</button>
         <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal-sm" id="noteDialog" aria-labelledby="noteTitle">
+    <form class="modal-body" method="dialog">
+      <h2 id="noteTitle"></h2>
+      <p class="modal-sub" id="noteText"></p>
+      <div class="modal-foot modal-foot-row">
+        <button type="submit" class="btn btn-primary" value="ok" id="noteOk"></button>
+        <button type="submit" class="btn btn-secondary" value="cancel" data-i18n>Cancel</button>
       </div>
     </form>
   </dialog>

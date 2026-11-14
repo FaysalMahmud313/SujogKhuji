@@ -200,6 +200,8 @@ function stateFrom(data) {
       upsert: Array.isArray(data.pendingUpsert) ? data.pendingUpsert.filter((x) => typeof x === 'string') : [],
       remove: Array.isArray(data.pendingRemove) ? data.pendingRemove.filter((x) => typeof x === 'string') : [],
       profile: !!data.pendingProfile,
+      customUpsert: Array.isArray(data.pendingCustomUpsert) ? data.pendingCustomUpsert.filter((x) => typeof x === 'string') : [],
+      customRemove: Array.isArray(data.pendingCustomRemove) ? data.pendingCustomRemove.filter((x) => typeof x === 'string') : [],
     },
   };
 }
@@ -215,6 +217,7 @@ const S = {
   live: { q: '', status: 'idle', answer: '', memory: '', items: [], message: '' },
   institutions: null,
   syncing: false,
+  syncedAt: 0,
   online: navigator.onLine !== false,
 };
 setLang(S.lang);
@@ -228,6 +231,7 @@ function saveStore({ quiet = false } = {}) {
     theme: S.theme, accent: S.accent, lang: S.lang, owner: S.owner, profile: S.profile, registered: S.registered, custom: S.custom,
     saved: S.saved, seen: S.seen, reported: S.reported, trackerView: S.trackerView,
     pendingUpsert: S.pending.upsert, pendingRemove: S.pending.remove, pendingProfile: S.pending.profile,
+    pendingCustomUpsert: S.pending.customUpsert, pendingCustomRemove: S.pending.customRemove,
   };
   try {
     lastWritten = JSON.stringify(data);
@@ -266,7 +270,7 @@ function resetLocal() {
   S.seen = {};
   S.reported = [];
   S.profile = { ...DEFAULT_PROFILE };
-  S.pending = { upsert: [], remove: [], profile: false };
+  S.pending = { upsert: [], remove: [], profile: false, customUpsert: [], customRemove: [] };
   S.owner = null;
   S.filters = { ...DEFAULT_FILTERS };
   pushTimers.forEach((timer) => clearTimeout(timer));
@@ -425,16 +429,41 @@ async function pushProfile() {
 let flushing = false;
 async function flushPending() {
   if (flushing || !signedIn() || S.syncing) return;
-  if (!S.pending.upsert.length && !S.pending.remove.length && !S.pending.profile) return;
+  if (!S.pending.upsert.length && !S.pending.remove.length && !S.pending.profile && !S.pending.customUpsert.length && !S.pending.customRemove.length) return;
   flushing = true;
   try {
     for (const id of [...S.pending.remove]) await dropApp(id);
     for (const id of [...S.pending.upsert]) await flushApp(id);
     if (S.pending.profile) await pushProfile();
+    await flushCustom();
   } finally {
     flushing = false;
     renderChrome();
   }
+}
+
+async function flushCustom() {
+  if (!signedIn() || (!S.pending.customUpsert.length && !S.pending.customRemove.length)) return;
+  const res = await CustomSync.flush(S, Backend.rest);
+  saveStore();
+  if (!res.ok && !res.missing && signedIn()) syncNotice(res.error || {});
+  renderChrome();
+}
+
+function pushCustom() {
+  saveStore();
+  if (signedIn()) flushCustom();
+}
+
+let lastPull = 0;
+const PULL_GAP = 60000;
+const editing = () => !!document.querySelector('dialog[open]') || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement && document.activeElement.tagName) || '');
+
+async function refreshAccount({ force = false } = {}) {
+  if (!signedIn() || S.syncing || !S.online) return false;
+  if (!force && (Date.now() - lastPull < PULL_GAP || editing() || S.parsing)) return false;
+  await loadAccount({ quiet: true });
+  return true;
 }
 
 function parkTimers() {
@@ -447,10 +476,11 @@ function parkTimers() {
   saveStore({ quiet: true });
 }
 
-const hasGuestData = () => S.registered.some((r) => !r.sample && !r.rev) || S.profile.onboarded || S.saved.length > 0;
+const hasGuestData = () => S.registered.some((r) => !r.sample && !r.rev) || S.profile.onboarded || S.saved.length > 0 || S.custom.length > 0;
 
-async function loadAccount() {
+async function loadAccount({ quiet = false } = {}) {
   if (!signedIn()) return;
+  lastPull = Date.now();
   const uid = Backend.user.id;
   if (S.owner && S.owner !== uid) resetLocal();
   let moved = false;
@@ -467,10 +497,11 @@ async function loadAccount() {
   S.syncing = true;
   renderChrome();
   try {
-    const [profiles, rows, reports] = await Promise.all([
+    const [profiles, rows, reports, added] = await Promise.all([
       Backend.rest(`/profiles?id=eq.${encodeURIComponent(uid)}&select=*`),
       Backend.rest(`/applications?select=*&order=created_at.asc&limit=${LIMITS.apps}`),
       Backend.rest('/reports?select=opportunity_id&limit=300').catch(() => []),
+      Backend.rest(`/custom_items?select=id,data,updated_at&order=created_at.desc&limit=${CustomSync.LIMIT}`).catch(() => null),
     ]);
     const remote = new Map(rows.map((r) => [r.opportunity_id, fromRow(r)]));
     const removed = new Set(S.pending.remove);
@@ -499,6 +530,7 @@ async function loadAccount() {
     S.registered = [...next, ...remote.values()].slice(0, LIMITS.apps);
     S.pending.upsert = upload;
     S.reported = [...new Set([...(Array.isArray(reports) ? reports.map((r) => r.opportunity_id) : []), ...S.reported])].slice(0, 300);
+    if (Array.isArray(added)) CustomSync.merge(S, added);
 
     const row = profiles[0];
     if (!row) {
@@ -517,10 +549,12 @@ async function loadAccount() {
     S.pending.profile = false;
     S.filters.region = S.profile.regionScope || 'ALL';
     saveStore();
-    fillProfile();
+    if (!quiet || S.tab !== 'profile') fillProfile();
     for (const id of upload) await flushApp(id);
+    if (Array.isArray(added)) await flushCustom();
+    S.syncedAt = Date.now();
   } catch (e) {
-    if (signedIn()) toast(t("Couldn't load your account. Showing what is saved on this device."), { tone: 'danger' });
+    if (signedIn() && !quiet) toast(t("Couldn't load your account. Showing what is saved on this device."), { tone: 'danger' });
   } finally {
     S.syncing = false;
     renderAll();
@@ -601,6 +635,8 @@ function go(tab, { push = true } = {}) {
   });
   $('#crumbPage').textContent = t(TAB_TITLES[tab]);
   document.title = `${t(TAB_TITLES[tab])} · SujogKhuji`;
+  $('#searchToggle').hidden = tab !== 'discover';
+  if (tab !== 'discover') closeSearch();
   if (push) syncUrl();
   window.scrollTo({ top: 0 });
   if (tab === 'profile') loadInstitutions();
@@ -661,7 +697,7 @@ function renderChrome() {
   const inst = (String(p.institution).match(/\(([^)]+)\)\s*$/)?.[1] || p.institution || '').split(' - ')[0];
   const sub = [experienceText(), inst, p.department].filter(Boolean).join(' · ');
   const who = p.name || (signedIn() ? Backend.user.email : t('Set up your profile'));
-  const waiting = S.pending.upsert.length + S.pending.remove.length + (S.pending.profile ? 1 : 0);
+  const waiting = S.pending.upsert.length + S.pending.remove.length + (S.pending.profile ? 1 : 0) + S.pending.customUpsert.length + S.pending.customRemove.length;
   const busy = S.syncing || waiting > 0;
   const sync = signedIn() ? `<i class="sync-dot ${busy ? 'busy' : ''}" title="${esc(busy ? t('Syncing…') : t('Synced to your account'))}"></i>` : '';
   $('#userCard').innerHTML = `<span class="avatar">${esc(initials(p.name || (signedIn() ? Backend.user.email : 'You')))}${sync}</span><span><b>${esc(who)}</b><small>${esc(sub)}</small></span>`;

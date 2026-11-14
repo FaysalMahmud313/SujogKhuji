@@ -56,6 +56,7 @@ function renderDetail() {
         : `<button type="button" class="btn btn-secondary" data-action="track" data-id="${id}">${icon('plus', 16)}${esc(t('Track'))}</button>`}
       <button type="button" class="btn btn-secondary" data-action="share" data-id="${id}">${icon('share', 16)}${esc(t('Share'))}</button>
       ${o.deadline ? `<button type="button" class="btn btn-secondary" data-action="calendar" data-id="${id}">${icon('calendar', 16)}${esc(t('Add to calendar'))}</button>` : ''}
+      ${o.custom ? `<button type="button" class="btn btn-secondary" data-action="remove-custom" data-id="${id}">${icon('trash', 16)}${esc(t('Remove'))}</button>` : ''}
     </div>
     ${o.custom || o.live ? '' : `
     <div class="report-box">
@@ -171,6 +172,7 @@ function bindDetail() {
     if (action === 'close-detail') dlg.close();
     else if (action === 'share') shareListing(id);
     else if (action === 'calendar') addToCalendar(id);
+    else if (action === 'remove-custom') removeCustom(id);
     else if (action === 'goto-tracker') { dlg.close(); go('tracker'); }
     else if (action === 'report-open') {
       const form = $('#reportForm');

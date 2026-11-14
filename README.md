@@ -23,7 +23,7 @@ database), **GitHub Actions** (the twice-daily search), **Tavily** (web search) 
 | Filters | Region, category, deadline, posted date, experience range, job type, work mode, country, education, field, organisation, funding, has pay, verified only, hide tracked. Filters live in the link, so a search can be shared or saved. |
 | Listing details | All extracted facts, source with a *Verified source* or *Check carefully* badge, share, add to calendar, track, report. |
 | Tracker | Steps with dates, status (Saved → Applied → Interview → Offer / Rejected), notes, list or board view, a 7-day strip, alerts 3 days before a step. |
-| Sync | Profile, applications and saved searches follow the account to every device. Changes made offline are sent later. Two devices editing the same application keep both sets of steps. |
+| Sync | Profile, applications, saved searches and the items you add on the Add page follow the account to every device. The site checks for changes when you come back to it, when the connection returns and every 5 minutes; **Sync now** in Profile & settings does it at once. Changes made offline are sent later. Two devices editing the same application keep both sets of steps. |
 | Safety | Pages that ask applicants for money are dropped. Three reports hide a listing for everyone. See [Security](#security). |
 | Live search | Tavily first, then Serper, then Exa, one at a time. A provider that runs out of free searches rests until its quota resets. |
 | AI extraction | The Add page reads pasted text, a link or just an opportunity name. The twice-daily search also AI-checks new listings. Free AI models only (Groq, Google Gemini, OpenRouter `:free`). Every fact must be backed by an exact quote from the source, or it is left empty. |
@@ -186,6 +186,7 @@ free plans. The whole site shares them; they are not per user:
 - **Twice-daily search:** about 840 Tavily searches a month, plus AI checks of up to 25 new listings per run.
 - **AI lookup by name (Add page and Discover):** each lookup makes 2 or 3 web searches. Searches are capped at 40 a day for the whole site and 10 per person, so that is roughly 13 to 20 lookups a day for everyone together. Raise `LIVE_SEARCH_DAILY_CAP` and `USER_SEARCH_DAILY_CAP` only while your search providers still have free searches left. Repeated lookups come from the cache and cost nothing.
 - **Groq's free plan allows 8,000 tokens a minute per model.** One lookup uses about 7,500, so when several people look things up in the same minute the engine moves on to the backup model and then to OpenRouter by itself. Answers get slower, never paid.
+- **Live AI searches per person:** 5 a day (`USER_LOOKUP_DAILY_CAP`), starting again at 6 AM Bangladesh time. People are told this number the first time they search. Repeats that come from the cache do not count.
 - **Add page, AI reading:** 10 an hour and 30 a day per person, and about 600 a day for the whole site.
 
 When a limit is reached, people see a short "temporarily unavailable" message. Pasted text then

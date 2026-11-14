@@ -87,6 +87,8 @@ async function runExtraction({ mode, input, env, store, fetchImpl, fetchPage, no
     const lookup = { query: input, found: true, answer: '', memory: '', results: [listing], sources: [], counts: { searches: 0, reads: 0, ai_calls: 0 }, model: null, checked_at: listing.checked_at };
     return { lookup, attempts: [{ provider: 'listing', outcome: 'ok' }] };
   }
+  const allowed = await store.take([{ bucket: `user:${uid}:lookup`, window: 'day', limit: capFrom(env, 'USER_LOOKUP_DAILY_CAP', 5) }]).catch(() => ({ ok: false, blocked: 'store_unavailable' }));
+  if (!allowed.ok) return allowed.blocked === 'store_unavailable' ? { unavailable: true, stage: 'ai', attempts: [] } : { lookup_limited: true, attempts: [] };
   const gate = () => store.take([
     { bucket: 'live_search:all', window: 'day', limit: capFrom(env, 'LIVE_SEARCH_DAILY_CAP', 40) },
     { bucket: `user:${uid}:search`, window: 'day', limit: capFrom(env, 'USER_SEARCH_DAILY_CAP', 10) },
@@ -106,7 +108,9 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   if (!user) return fail(401, 'sign_in', 'Sign in with a verified email to use AI extraction.');
   let data;
   try { data = JSON.parse(body); } catch { return fail(400, 'bad_json', 'The request was not understood.'); }
-  const input = typeof data.input === 'string' ? data.input.replace(/\r/g, '').trim() : '';
+  const limits = { lookups_per_day: capFrom(env, 'USER_LOOKUP_DAILY_CAP', 5) };
+  if (data && data.mode === 'limits') return reply(200, { limits });
+  const input =typeof data.input === 'string' ? data.input.replace(/\r/g, '').trim() : '';
   if (input.length < 3) return fail(422, 'empty', 'Paste some text, a link or an opportunity name first.');
   if (input.length > MAX_TEXT) return fail(413, 'too_large', 'That text is too long. Paste at most 20,000 characters.');
   const mode = ['text', 'url', 'name'].includes(data.mode) ? data.mode : detectMode(input);
@@ -123,7 +127,7 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   const cached = await store.cacheGet('extract', key, ttl).catch(() => null);
   if (cached && cached.lookup && (cached.lookup.found || now() - Date.parse(cached.lookup.checked_at) < MISS_SECONDS * 1000)) {
     log('cache', { mode });
-    return reply(200, { result: cached.lookup.results[0] || null, lookup: cached.lookup, mode, cached: true });
+    return reply(200, { result: cached.lookup.results[0] || null, lookup: cached.lookup, mode, cached: true, limits });
   }
   if (cached && cached.result) { log('cache', { mode }); return reply(200, { result: cached.result, mode, cached: true }); }
   const limited = await store.take([
@@ -153,14 +157,15 @@ export async function handleExtract({ method, headers = {}, body = '', env = pro
   if (out.lookup) {
     await store.cachePut('extract', key, { lookup: out.lookup }).catch(() => {});
     log(out.lookup.found ? 'ok' : 'nothing_found', { mode, results: out.lookup.results.length, ...out.lookup.counts, tried });
-    return reply(200, { result: out.lookup.results[0] || null, lookup: out.lookup, mode, cached: false });
+    return reply(200, { result: out.lookup.results[0] || null, lookup: out.lookup, mode, cached: false, limits });
   }
   if (out.result) {
     await store.cachePut('extract', key, { result: out.result }).catch(() => {});
     log('ok', { mode, provider: out.result.provider, tried });
     return reply(200, { result: out.result, mode, cached: false });
   }
-  log(out.error || (out.unavailable ? 'unavailable' : out.search_limited ? 'search_limited' : 'failed'), { mode, tried });
+  log(out.error || (out.unavailable ? 'unavailable' : out.search_limited ? 'search_limited' : out.lookup_limited ? 'lookup_limited' : 'failed'), { mode, tried });
+  if (out.lookup_limited) return fail(429, 'lookup_limited', `You have used all ${limits.lookups_per_day} of today's live AI searches. They start again at 6 AM Bangladesh time. Paste the text or a link instead.`, { retry_after: 3600, limits });
   if (out.search_limited) return fail(429, 'search_limited', 'Live web search has reached today\'s free limit. Paste the text or a link instead, or try again tomorrow.', { retry_after: 3600 });
   if (out.unavailable) return fail(503, 'unavailable', out.stage === 'search' ? 'Live web search is temporarily unavailable (the free limits are used up). Paste the text or a link instead.' : 'AI extraction is temporarily unavailable (the free limits are used up). Please try again later.');
   if (out.error === 'empty_page') return fail(422, 'empty_page', 'That page has almost no readable text. Paste the text instead.');

@@ -581,6 +581,30 @@ test('live-search caps, the AI cap and an AI outage give friendly messages', asy
   assert.equal(lost.status, 503);
 });
 
+test('each person gets a set number of live AI searches a day, and the site is told the number', async () => {
+  const net = fakeNet({ ...authRoutes(), 'api.tavily.com': tavilyOk(['https://a.org/1']), 'api.groq.com': agent([toolReply(['finish', { answer: 'Nothing found.', matches: [] }])], { opportunities: [] }) });
+  const info = await call(net, { mode: 'limits' });
+  assert.equal(info.status, 200);
+  assert.deepEqual(info.body.limits, { lookups_per_day: 5 });
+  assert.deepEqual(net.hosts(), ['db.test']);
+  assert.equal((await handleExtract({ method: 'POST', headers: {}, body: '{"mode":"limits"}', env: SUPA, deps: { fetch: net.fetchImpl, store } })).status, 401);
+  const two = { USER_LOOKUP_DAILY_CAP: '2' };
+  assert.equal((await call(net, { mode: 'limits' }, two)).body.limits.lookups_per_day, 2);
+  const first = await call(net, { input: 'first new thing' }, two);
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.body.limits, { lookups_per_day: 2 });
+  assert.equal((await call(net, { input: 'first new thing' }, two)).body.cached, true);
+  assert.equal((await call(net, { input: 'second new thing' }, two)).status, 200);
+  const asked = groqCalls(net).length;
+  const third = await call(net, { input: 'third new thing' }, two);
+  assert.equal(third.status, 429);
+  assert.equal(third.body.error, 'lookup_limited');
+  assert.match(third.body.message, /all 2 of today's live AI searches/);
+  assert.equal(third.headers['Retry-After'], '3600');
+  assert.equal(groqCalls(net).length, asked);
+  assert.equal((await call(net, { input: 'first new thing' }, two)).status, 200);
+});
+
 test('a repeated name lookup comes from the cache, and answers cached under the old key are ignored', async () => {
   await store.cachePut('extract', hashKey('extract', 'v2', 'name', 'acme bank graduate trainee'), { result: { title: 'OLD ANSWER' } });
   const net = fakeNet({ ...authRoutes(), 'api.tavily.com': acmeSearch, 'api.groq.com': agent(acmeSteps(), { opportunities: [GOOD] }) });

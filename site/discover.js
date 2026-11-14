@@ -326,7 +326,7 @@ function renderLiveStatus() {
     box.innerHTML = `<div class="live-bar warn">${icon('alert', 15)}<span>${esc(t('Listings were last updated {when}. Expired ones are hidden automatically.', { when: ago(hours * 3600000) }))}</span></div>`;
     return;
   }
-  box.innerHTML = `<div class="live-bar"><i class="live-dot"></i><span>${esc(t('Updated {when} · searched from the web twice a day · every listing links to its source', { when: ago(hours * 3600000) }))}</span></div>`;
+  box.innerHTML = `<div class="live-bar"><i class="live-dot"></i><span class="live-long">${esc(t('Updated {when} · searched from the web twice a day · every listing links to its source', { when: ago(hours * 3600000) }))}</span><span class="live-short">${esc(t('Updated {when}', { when: ago(hours * 3600000) }))}</span></div>`;
 }
 
 function savedCount(s) {
@@ -424,6 +424,7 @@ async function liveSearch() {
   const q = S.filters.q.trim();
   const key = liveKey(q);
   if (key.length < 3 || !aiReady() || S.live.status === 'loading' || (S.live.q === key && S.live.status === 'done')) return;
+  if (!(await liveNote())) return;
   S.live = { q: key, status: 'loading', answer: '', memory: '', items: [], message: '' };
   renderDiscover();
   try {
@@ -462,6 +463,7 @@ function renderDiscover() {
   $('#fExp').setAttribute('aria-checked', String(f.matchExp));
   $('#fExpLabel').textContent = t('For my experience ({x})', { x: experienceText().toLowerCase() });
   if ($('#fSearch').value !== f.q && document.activeElement !== $('#fSearch')) $('#fSearch').value = f.q;
+  $('#searchToggle').classList.toggle('has-query', !!f.q.trim());
   renderLiveStatus();
 
   const base = allOpps().filter((o) => passes(o, f, 'cat'));
@@ -518,6 +520,20 @@ function renderDiscover() {
     </div>`;
 }
 
+const searchIsOpen = () => document.body.classList.contains('search-open');
+
+function openSearch() {
+  document.body.classList.add('search-open');
+  $('#searchToggle').setAttribute('aria-expanded', 'true');
+  $('#fSearch').focus();
+}
+
+function closeSearch() {
+  if (!searchIsOpen()) return;
+  document.body.classList.remove('search-open');
+  $('#searchToggle').setAttribute('aria-expanded', 'false');
+}
+
 function bindDiscover() {
   let searchTimer = 0;
   $('#fSearch').addEventListener('input', (e) => {
@@ -526,12 +542,22 @@ function bindDiscover() {
     searchTimer = setTimeout(() => { S.filters.q = value; filtersChanged({ panel: false }); }, 150);
   });
   $('#fSearch').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && searchIsOpen()) { closeSearch(); return; }
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
     clearTimeout(searchTimer);
     if (S.filters.q !== e.target.value) { S.filters.q = e.target.value; filtersChanged({ panel: false }); }
+    if (searchIsOpen()) { closeSearch(); e.target.blur(); }
     liveSearch();
   });
+  const phone = window.matchMedia('(max-width: 640px)');
+  const placeControls = () => {
+    const switches = $('#fExp').closest('.switches');
+    (phone.matches ? $('#page-discover .toolbar') : $('#page-discover .subbar')).appendChild(switches);
+    if (!phone.matches) closeSearch();
+  };
+  placeControls();
+  phone.addEventListener('change', placeControls);
   $('#fRegion').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.filters.region = b.dataset.v; filtersChanged(); } });
   $('#fCat').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.filters.cat = b.dataset.v; filtersChanged(); } });
   $('#fExp').addEventListener('click', () => { S.filters.matchExp = !S.filters.matchExp; filtersChanged(); });

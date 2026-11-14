@@ -217,6 +217,57 @@ create trigger applications_limit before insert on public.applications
   for each row execute function public.limit_applications();
 
 
+create table if not exists public.custom_items (
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  id text not null check (id ~ '^custom-[a-z0-9]{1,40}$'),
+  data jsonb not null check (jsonb_typeof(data) = 'object' and pg_column_size(data) <= 8000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, id)
+);
+
+alter table public.custom_items enable row level security;
+
+drop policy if exists "custom_items_select_own" on public.custom_items;
+drop policy if exists "custom_items_insert_own" on public.custom_items;
+drop policy if exists "custom_items_update_own" on public.custom_items;
+drop policy if exists "custom_items_delete_own" on public.custom_items;
+create policy "custom_items_select_own" on public.custom_items for select to authenticated
+  using ((select auth.uid()) = user_id);
+create policy "custom_items_insert_own" on public.custom_items for insert to authenticated
+  with check ((select auth.uid()) = user_id and (select private.is_verified()));
+create policy "custom_items_update_own" on public.custom_items for update to authenticated
+  using ((select auth.uid()) = user_id and (select private.is_verified()))
+  with check ((select auth.uid()) = user_id and (select private.is_verified()));
+create policy "custom_items_delete_own" on public.custom_items for delete to authenticated
+  using ((select auth.uid()) = user_id and (select private.is_verified()));
+
+drop trigger if exists custom_items_touch on public.custom_items;
+create trigger custom_items_touch before update on public.custom_items
+  for each row execute function public.touch_updated_at();
+
+create or replace function public.limit_custom_items()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(new.user_id::text, 12));
+  if not exists (
+    select 1 from public.custom_items c where c.user_id = new.user_id and c.id = new.id
+  ) and (select count(*) from public.custom_items c where c.user_id = new.user_id) >= 100 then
+    raise exception 'You can keep at most 100 added items';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists custom_items_limit on public.custom_items;
+create trigger custom_items_limit before insert on public.custom_items
+  for each row execute function public.limit_custom_items();
+
+
 create table if not exists public.opportunities (
   id text primary key check (char_length(id) <= 40),
   title text not null check (char_length(title) <= 200),

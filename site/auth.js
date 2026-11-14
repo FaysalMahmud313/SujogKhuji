@@ -401,13 +401,14 @@ function renderAccount() {
   if (signedIn()) {
     box.innerHTML = `
       <div class="switch-row">
-        <div><b>${esc(Backend.user.email)}</b><small>${icon('shield', 12)} ${esc(S.syncing ? t('Syncing…') : t('Email verified. Profile and applications are synced.'))}</small></div>
+        <div><b>${esc(Backend.user.email)}</b><small>${icon('shield', 12)} ${esc(S.syncing ? t('Syncing…') : `${t('Email verified. Profile and applications are synced.')}${S.syncedAt ? ` ${t('Last synced {when}.', { when: ago(Date.now() - S.syncedAt) })}` : ''}`)}</small></div>
         <button class="btn btn-sm btn-secondary" data-action="sign-out" type="button">${icon('logout', 14)}${esc(t('Sign out'))}</button>
       </div>
       <div class="divider"></div>
       <div class="actions">
         <button class="btn btn-sm btn-ghost" data-action="open-auth" data-mode="change" type="button">${icon('mail', 14)}${esc(t('Change email'))}</button>
         <button class="btn btn-sm btn-ghost" data-action="open-auth" data-mode="setpass" type="button">${icon('key', 14)}${esc(t('Change password'))}</button>
+        <button class="btn btn-sm btn-ghost" data-action="sync-now" type="button"${S.syncing ? ' disabled' : ''}>${icon('refresh', 14)}${esc(t('Sync now'))}</button>
       </div>`;
     return;
   }
@@ -450,6 +451,22 @@ function askName(title, value) {
     dlg.returnValue = '';
     dlg.showModal();
     setTimeout(() => $('#nameInput').select(), 30);
+  });
+}
+
+function askNote(title, text, okLabel) {
+  const dlg = $('#noteDialog');
+  $('#noteTitle').textContent = title;
+  $('#noteText').textContent = text;
+  $('#noteOk').textContent = okLabel;
+  return new Promise((resolve) => {
+    const onClose = () => {
+      dlg.removeEventListener('close', onClose);
+      resolve(dlg.returnValue === 'ok');
+    };
+    dlg.addEventListener('close', onClose);
+    dlg.returnValue = '';
+    dlg.showModal();
   });
 }
 
