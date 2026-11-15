@@ -27,6 +27,8 @@ database), **GitHub Actions** (the twice-daily search), **Tavily** (web search) 
 | Safety | Pages that ask applicants for money are dropped. Three reports hide a listing for everyone. See [Security](#security). |
 | Live search | Tavily first, then Serper, then Exa, one at a time. A provider that runs out of free searches rests until its quota resets. |
 | AI extraction | The Add page reads pasted text, a link or just an opportunity name. The twice-daily search also AI-checks new listings. Free AI models only (Groq, Google Gemini, OpenRouter `:free`). Every fact must be backed by an exact quote from the source, or it is left empty. |
+| Look and feel | Light and dark themes, English and বাংলা, and 10 accent colours (Profile → Appearance). The colour follows your account to other devices. |
+| Feedback | Signed-in people can send problems and feature ideas from Profile → Feedback; they land in your Google Form with their account email. |
 | AI lookup by name | Type a few words on the Add page, or press Enter in the Discover search, and the AI does the looking: it writes its own search queries, reads the pages, then gives a short answer and up to 3 matching opportunities with their sources. One lookup uses at most 3 searches, 4 page reads, 6 AI calls and 45 seconds. Pages built with JavaScript are read through Exa's page reader. |
 
 ---
@@ -201,7 +203,28 @@ paste an announcement, a link and a name, and hover over a value in the result t
 came from. In Discover, type something that is not in the listings and press Enter to see the
 live AI search.
 
-### 10. Help Google find the site (optional)
+### 10. Feedback page (optional)
+People who are signed in can send feedback from **Profile → Feedback**. It is saved in a Google Form
+that you own, together with their account email. Nothing about the form is kept in the website's code.
+1. Make a Google Form with three questions, in this order: *Problems you faced* (paragraph),
+   *Features you want* (paragraph) and *Account email* (short answer). None of them required.
+2. In the form's **Settings → Responses**, keep *Collect email addresses* on **Do not collect** and keep
+   *Limit to 1 response* off. The form must open without a Google sign-in.
+3. In the form editor choose **⋮ → Get pre-filled link**, type `a` in each box, and copy the link. It
+   contains three `entry.NNN` numbers, in the order of the questions.
+4. On Vercel add four variables (**Settings → Environment Variables**), then redeploy:
+
+| Name | Value |
+|---|---|
+| `FEEDBACK_FORM_URL` | the form's address ending in `/formResponse` (the pre-filled link with `viewform?...` replaced by `formResponse`) |
+| `FEEDBACK_ENTRY_PROBLEM` | `entry.NNN` of the first question |
+| `FEEDBACK_ENTRY_FEATURES` | `entry.NNN` of the second question |
+| `FEEDBACK_ENTRY_EMAIL` | `entry.NNN` of the third question |
+
+Each person can send 5 a day (`FEEDBACK_DAILY_CAP`). Until the variables are set, the Feedback page
+says it is not set up yet.
+
+### 11. Help Google find the site (optional)
 The home page already has a title, description, canonical link and sharing tags, and `site/robots.txt`
 lets search engines in. To tell Google the site is yours:
 1. Open **Google Search Console → Add property → URL prefix** and enter `https://sujogkhuji.vercel.app/`.
@@ -357,6 +380,7 @@ opportunity_bd/
 │   └── data/                   bd_institutions.json, and opportunities.json for local runs
 ├── api/auth-email.js           Vercel function: emails the code
 ├── api/extract.js              Vercel function: the Add page's AI extraction
+├── api/feedback.js             Vercel function: sends feedback to your Google Form
 ├── netlify/functions/          The same functions for Netlify
 ├── server/auth-email.js        The email function's logic and its tests
 ├── server/extract-handler.js   Sign-in check, limits, caching and the three input types

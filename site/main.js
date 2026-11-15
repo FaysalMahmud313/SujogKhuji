@@ -419,7 +419,7 @@ async function importData(file) {
     if (data.profile && typeof data.profile === 'object') S.profile = cleanProfile({ ...data.profile, onboarded: data.profile.onboarded || S.profile.onboarded });
     if (Array.isArray(data.custom)) S.custom = data.custom.filter((o) => o && typeof o.id === 'string' && typeof o.title === 'string').slice(0, 100).map((o) => ({ ...o, custom: true, verified: false, url: safeUrl(o.url) ? o.url : '' }));
     if (Array.isArray(data.saved)) S.saved = cleanSaved([...S.saved, ...data.saved]);
-    if (ACCENTS[data.accent]) S.accent = data.accent;
+    if (typeof data.accent === 'string') S.accent = cleanAccent(data.accent);
     if (['system', 'light', 'dark'].includes(data.theme)) S.theme = data.theme;
     saveStore();
     fillProfile();
@@ -708,6 +708,7 @@ function changeLanguage(lang) {
   S.lang = lang === 'bn' ? 'bn' : 'en';
   setLang(S.lang);
   applyI18n();
+  applyTheme();
   pushProfile();
   go(S.tab, { push: false });
   renderAll();
@@ -728,7 +729,7 @@ function bind() {
   $('#pGrad').innerHTML = years;
   $('#obGrad').innerHTML = years;
   $('#pAccent').innerHTML = Object.entries(ACCENTS).map(([k, v]) =>
-    `<button type="button" class="swatch" style="--c:${v}" data-v="${k}" aria-label="${k} accent" title="${k[0].toUpperCase() + k.slice(1)}"></button>`).join('');
+    `<button type="button" class="swatch" style="--c:${v}" data-v="${k}" aria-pressed="false"></button>`).join('');
   $('#fSort').innerHTML = Object.entries(SORTS).map(([v, label]) => `<option value="${v}" data-i18n>${label}</option>`).join('');
   applyI18n();
 
@@ -758,6 +759,7 @@ function bind() {
       else if (action === 'edit-about') showFlow('about');
       else if (action === 'sign-out') signOut();
       else if (action === 'sync-now') syncNow();
+      else if (action === 'open-feedback') openFeedback();
       else if (action === 'open-search') openSearch();
       else if (action === 'close-search') closeSearch();
       else if (action === 'show-add-step') {
@@ -815,7 +817,7 @@ function bind() {
   });
   $('#pTheme').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.theme = b.dataset.v; saveStore(); applyTheme(); } });
   $('#pLang').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.dataset.v !== S.lang) changeLanguage(b.dataset.v); });
-  $('#pAccent').addEventListener('click', (e) => { const b = e.target.closest('.swatch'); if (b) { S.accent = b.dataset.v; saveStore(); applyTheme(); } });
+  $('#pAccent').addEventListener('click', (e) => { const b = e.target.closest('.swatch'); if (b) { S.accent = cleanAccent(b.dataset.v); saveStore(); applyTheme(); pushProfile(); } });
   $('#saveProfile').addEventListener('click', saveProfile);
   $('#exportBtn').addEventListener('click', exportData);
   $('#importFile').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value = ''; });
@@ -828,6 +830,7 @@ function bind() {
   bindTracker();
   bindDetail();
   bindAuth();
+  bindFeedback();
 
   window.addEventListener('hashchange', () => {
     const { tab, query } = parseHash();

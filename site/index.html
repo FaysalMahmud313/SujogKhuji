@@ -40,6 +40,7 @@
   <script src="tracker.js" defer></script>
   <script src="detail.js" defer></script>
   <script src="auth.js" defer></script>
+  <script src="feedback.js" defer></script>
   <script src="main.js" defer></script>
 </head>
 <body>
@@ -58,6 +59,7 @@
         <button type="button" class="nav-item" data-tab="import"><span data-icon="file"></span><span data-i18n>Add from text</span></button>
         <div class="nav-label" data-i18n>You</div>
         <button type="button" class="nav-item" data-tab="profile"><span data-icon="user"></span><span data-i18n>Profile &amp; settings</span></button>
+        <button type="button" class="nav-item" data-action="open-feedback"><span data-icon="message"></span><span data-i18n>Feedback</span></button>
       </nav>
 
       <div class="sidebar-foot">
@@ -377,6 +379,19 @@
 
             <section class="set-section">
               <div class="set-intro">
+                <h2 data-i18n>Feedback</h2>
+                <p data-i18n>Tell us what went wrong and what you would like next.</p>
+              </div>
+              <div class="card set-body">
+                <div class="switch-row">
+                  <div><b data-i18n>Send feedback</b><small data-i18n>Two short boxes: problems you faced and features you want.</small></div>
+                  <button class="btn btn-sm btn-secondary" data-action="open-feedback" type="button"><span data-icon="message" data-size="14"></span><span data-i18n>Give feedback</span></button>
+                </div>
+              </div>
+            </section>
+
+            <section class="set-section">
+              <div class="set-intro">
                 <h2 data-i18n>Your data</h2>
                 <p data-i18n>Keep a copy of your applications, or start over.</p>
               </div>
@@ -601,6 +616,32 @@
         <button type="submit" class="btn btn-secondary" value="cancel" data-i18n>Cancel</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal feedback" id="feedback" aria-labelledby="fbTitle">
+    <form class="modal-body" id="fbForm" novalidate>
+      <button type="button" class="icon-btn modal-close" data-action="close-feedback" aria-label="Close" data-i18n-attr="aria-label"><span data-icon="x"></span></button>
+      <h2 id="fbTitle" data-i18n>Feedback</h2>
+      <p class="modal-sub" data-i18n>Tell us what went wrong and what you would like next.</p>
+      <label class="field">
+        <span class="field-label" data-i18n>Problems you faced</span>
+        <textarea class="textarea fb-box" id="fbProblem" maxlength="1000" rows="4"></textarea>
+        <span class="fb-count" id="fbProblemCount" aria-hidden="true"></span>
+      </label>
+      <label class="field">
+        <span class="field-label" data-i18n>Features you want</span>
+        <textarea class="textarea fb-box" id="fbFeatures" maxlength="1000" rows="4"></textarea>
+        <span class="fb-count" id="fbFeaturesCount" aria-hidden="true"></span>
+      </label>
+      <input class="fb-trap" id="fbWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <p class="notice fb-notice" id="fbNotice"></p>
+      <p class="form-msg" id="fbMsg" role="alert"></p>
+      <div class="modal-foot modal-foot-row">
+        <button type="submit" class="btn btn-primary" id="fbSend" data-i18n>Send feedback</button>
+        <button type="button" class="btn btn-secondary" data-action="close-feedback" data-i18n>Cancel</button>
+      </div>
+    </form>
+    <div class="fb-thanks" id="fbThanks" role="status" aria-live="polite" hidden></div>
   </dialog>
 
   <div id="toasts" role="status" aria-live="polite"></div>

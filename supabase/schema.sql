@@ -112,6 +112,11 @@ alter table public.profiles add column if not exists lang text not null default 
 alter table public.profiles add column if not exists saved_searches jsonb not null default '[]'::jsonb
   check (jsonb_typeof(saved_searches) = 'array' and jsonb_array_length(saved_searches) <= 20 and pg_column_size(saved_searches) <= 6000);
 
+alter table public.profiles add column if not exists accent text;
+alter table public.profiles drop constraint if exists profiles_accent_check;
+alter table public.profiles add constraint profiles_accent_check
+  check (accent is null or accent in ('indigo', 'blue', 'teal', 'green', 'orange', 'red', 'purple', 'slate', 'sky', 'lime'));
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;

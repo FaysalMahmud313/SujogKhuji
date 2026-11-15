@@ -227,7 +227,7 @@ const Backend = (() => {
     try { data = await res.json(); } catch { data = null; }
     if (!res.ok) {
       const message = data && typeof data.message === 'string' ? data.message.slice(0, 300) : res.status === 404 ? 'AI extraction is not set up on this site yet.' : 'Something went wrong. Please try again.';
-      throw Object.assign(new Error(message), { status: res.status, code: data && data.error });
+      throw Object.assign(new Error(message), { status: res.status, code: data && data.error, data });
     }
     return data;
   }

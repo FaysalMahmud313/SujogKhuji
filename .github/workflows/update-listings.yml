@@ -34,7 +34,7 @@ jobs:
       - name: Check the collector and the engine
         run: |
           python -m unittest discover -s scraper -p "test_*.py"
-          node --test server/auth-email.test.js server/engine.test.js server/sync.test.js
+          node --test server/auth-email.test.js server/engine.test.js server/sync.test.js server/feedback.test.js
 
       - name: Collect open opportunities and save them to the database
         env:

@@ -44,6 +44,7 @@ const ICONS = {
   note: '<path d="M5 3.5h14A1.5 1.5 0 0 1 20.5 5v9.5L15 20.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z"/><path d="M14.5 20.5v-5a1 1 0 0 1 1-1h5M8 8.5h8M8 12.5h4"/>',
   columns: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="11" rx="1.5"/><rect x="16" y="4" width="5" height="14" rx="1.5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  message: '<path d="M21 11.5a8.5 8.5 0 0 1-12.3 7.6L3 21l1.9-5.7A8.5 8.5 0 1 1 21 11.5Z"/>',
   mail: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="m3 7 9 6.5L21 7"/>',
   key: '<circle cx="8" cy="15" r="4.5"/><path d="m11.5 11.5 8-8M16 7l3 3"/>',
   logout: '<path d="M9 21H5.5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2H9M16 17l5-5-5-5M21 12H9"/>',
@@ -62,7 +63,9 @@ const safeUrl = (u) => /^https?:\/\/[^\s"'<>]+$/i.test(String(u || ''));
 const isIso = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const ACCENTS = { indigo: '#5E5CE6', emerald: '#047857', rose: '#E11D48', amber: '#B45309', cyan: '#0E7490' };
+const ACCENTS = window.SUJOG_ACCENTS.colours;
+const ACCENT_NAMES = { indigo: 'Indigo', blue: 'Blue', teal: 'Teal', green: 'Green', orange: 'Orange', red: 'Red', purple: 'Purple', slate: 'Slate', sky: 'Sky blue', lime: 'Light green' };
+const cleanAccent = (v) => { const k = window.SUJOG_ACCENTS.renamed[v] || v; return ACCENTS[k] ? k : 'indigo'; };
 const REGION = { BD: 'Bangladesh', GLOBAL: 'Global' };
 const CAT = { job: 'Job', internship: 'Internship', scholarship: 'Scholarship', competition: 'Hackathon / competition', program: 'Program / fellowship' };
 const CAT_SHORT = { job: 'Job', internship: 'Internship', scholarship: 'Scholarship', competition: 'Competition', program: 'Program' };
@@ -186,7 +189,7 @@ const clampYears = (n) => Math.max(0, Math.min(50, Math.round(Number(n) || 0)));
 function stateFrom(data) {
   return {
     theme: ['system', 'light', 'dark'].includes(data.theme) ? data.theme : 'system',
-    accent: ACCENTS[data.accent] ? data.accent : 'indigo',
+    accent: cleanAccent(data.accent),
     lang: data.lang === 'bn' ? 'bn' : 'en',
     owner: typeof data.owner === 'string' ? data.owner : null,
     profile: cleanProfile(data.profile),
@@ -295,6 +298,7 @@ const toRow = (it) => ({
   steps: cleanSteps(it.steps_json),
 });
 const fromRow = (r) => cleanApp({ ...r, steps_json: r.steps, rev: r.updated_at });
+let accentColumn = true;
 const profileToRow = (p) => ({
   full_name: String(p.name || '').slice(0, 80),
   experience_years: clampYears(p.experienceYears),
@@ -306,6 +310,7 @@ const profileToRow = (p) => ({
   field: FIELD[p.field] ? p.field : 'any',
   work_mode: WORK_MODE[p.workMode] ? p.workMode : 'any',
   lang: S.lang,
+  ...(accentColumn ? { accent: S.accent } : {}),
   saved_searches: cleanSaved(S.saved),
   onboarded: !!p.onboarded,
 });
@@ -411,11 +416,21 @@ async function dropApp(id) {
   }
 }
 
+async function writeProfile(send) {
+  try {
+    await send(profileToRow(S.profile));
+  } catch (e) {
+    if (!accentColumn || e.status !== 400 || !/accent/.test(e.detail || '')) throw e;
+    accentColumn = false;
+    await send(profileToRow(S.profile));
+  }
+}
+
 async function pushProfile() {
   saveStore();
   if (!signedIn()) return;
   try {
-    await Backend.rest(`/profiles?id=eq.${encodeURIComponent(Backend.user.id)}`, { method: 'PATCH', body: profileToRow(S.profile), prefer: 'return=minimal' });
+    await writeProfile((row) => Backend.rest(`/profiles?id=eq.${encodeURIComponent(Backend.user.id)}`, { method: 'PATCH', body: row, prefer: 'return=minimal' }));
     S.pending.profile = false;
     saveStore();
   } catch (e) {
@@ -534,9 +549,9 @@ async function loadAccount({ quiet = false } = {}) {
 
     const row = profiles[0];
     if (!row) {
-      await Backend.rest('/profiles', { method: 'POST', body: { id: uid, ...profileToRow(S.profile) }, prefer: 'return=minimal' });
+      await writeProfile((body) => Backend.rest('/profiles', { method: 'POST', body: { id: uid, ...body }, prefer: 'return=minimal' }));
     } else if ((moved && S.profile.onboarded && !row.onboarded) || S.pending.profile) {
-      await Backend.rest(`/profiles?id=eq.${encodeURIComponent(uid)}`, { method: 'PATCH', body: profileToRow(S.profile), prefer: 'return=minimal' });
+      await writeProfile((body) => Backend.rest(`/profiles?id=eq.${encodeURIComponent(uid)}`, { method: 'PATCH', body, prefer: 'return=minimal' }));
     } else {
       S.profile = profileFromRow(row);
       const theirs = cleanSaved(row.saved_searches);
@@ -545,6 +560,7 @@ async function loadAccount({ quiet = false } = {}) {
       if (row.lang === 'bn' || row.lang === 'en') {
         if (row.lang !== S.lang) { S.lang = row.lang; setLang(S.lang); applyI18n(); }
       }
+      if (ACCENTS[row.accent] && row.accent !== S.accent) { S.accent = row.accent; applyTheme(); }
     }
     S.pending.profile = false;
     S.filters.region = S.profile.regionScope || 'ALL';
@@ -552,6 +568,7 @@ async function loadAccount({ quiet = false } = {}) {
     if (!quiet || S.tab !== 'profile') fillProfile();
     for (const id of upload) await flushApp(id);
     if (Array.isArray(added)) await flushCustom();
+    if (row && accentColumn && row.accent !== S.accent && (S.accent !== 'indigo' || row.accent)) await pushProfile();
     S.syncedAt = Date.now();
   } catch (e) {
     if (signedIn() && !quiet) toast(t("Couldn't load your account. Showing what is saved on this device."), { tone: 'danger' });
@@ -609,12 +626,20 @@ function applyTheme() {
   const root = document.documentElement;
   const mode = resolvedTheme();
   root.setAttribute('data-theme', mode);
+  root.setAttribute('data-accent', S.accent);
   root.style.setProperty('--accent', ACCENTS[S.accent]);
   $('meta[name="theme-color"]').setAttribute('content', mode === 'dark' ? '#09090B' : '#F7F7F8');
   $('#themeBtn').innerHTML = icon(mode === 'dark' ? 'sun' : 'moon', 17);
   $$('#pTheme button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.theme));
   $$('#pLang button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.lang));
-  $$('#pAccent .swatch').forEach((b) => b.classList.toggle('on', b.dataset.v === S.accent));
+  $$('#pAccent .swatch').forEach((b) => {
+    const on = b.dataset.v === S.accent;
+    const name = t(ACCENT_NAMES[b.dataset.v]);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', name);
+    b.title = name;
+  });
 }
 mq.addEventListener?.('change', () => S.theme === 'system' && applyTheme());
 

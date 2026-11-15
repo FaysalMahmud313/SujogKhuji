@@ -15,6 +15,7 @@ const SHELL = [
   './tracker.js',
   './detail.js',
   './auth.js',
+  './feedback.js',
   './main.js',
   './manifest.webmanifest',
   './fonts/geist-latin.woff2',
