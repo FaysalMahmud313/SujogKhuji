@@ -740,6 +740,9 @@ function bind() {
     if (a) {
       const { action, id, idx } = a.dataset;
       if (action === 'toggle-step') toggleStep(id, Number(idx));
+      else if (action === 'edit-step') editStep(id, Number(idx));
+      else if (action === 'cancel-step-edit') cancelStepEdit();
+      else if (action === 'delete-step') deleteStep(id, Number(idx));
       else if (action === 'remove') removeApp(id);
       else if (action === 'track') track(id);
       else if (action === 'open') openDetail(id);
@@ -774,10 +777,15 @@ function bind() {
     if (!e.target.closest('.combo')) closeCombo();
   });
   document.addEventListener('submit', (e) => {
+    const edit = e.target.closest('.step-edit');
+    if (edit) { e.preventDefault(); saveStep(edit.dataset.id, Number(edit.dataset.idx), edit.elements.t.value, edit.elements.d.value); return; }
     const form = e.target.closest('.add-step');
     if (!form) return;
     e.preventDefault();
     addStep(form.dataset.id, form.elements.t.value, form.elements.d.value);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && e.target.closest && e.target.closest('.step-edit')) { e.preventDefault(); cancelStepEdit(); }
   });
   document.addEventListener('close', (e) => {
     if (e.target instanceof HTMLDialogElement && e.target.contains($('#toasts'))) document.body.appendChild($('#toasts'));

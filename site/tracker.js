@@ -60,13 +60,24 @@ function appCard(it) {
       </div>
       <ul class="steps">
         ${steps.map((s, i) => {
+          if (isEditingStep(it.opportunity_id, s)) {
+            return `<li class="step-edit-row"><form class="step-edit" data-id="${id}" data-idx="${i}">
+              <input class="input" name="t" maxlength="${LIMITS.stepText}" value="${esc(s.t)}" aria-label="${esc(t('Step name'))}" required />
+              <input class="input" name="d" type="date" value="${esc(s.d)}" aria-label="${esc(t('Step date'))}" required />
+              <div class="step-edit-actions">
+                <button type="button" class="btn btn-sm btn-ghost danger-text" data-action="delete-step" data-id="${id}" data-idx="${i}">${icon('trash', 14)}${esc(t('Delete'))}</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-action="cancel-step-edit">${esc(t('Cancel'))}</button>
+                <button type="submit" class="btn btn-sm btn-primary">${esc(t('Save'))}</button>
+              </div>
+            </form></li>`;
+          }
           const tn = !s.done ? tone(s.d) : '';
           const dateCls = tn === 'danger' ? 'tx-danger' : tn === 'warn' ? 'tx-warn' : '';
           return `<li><button type="button" class="step ${s.done ? 'done' : ''}" data-action="toggle-step" data-id="${id}" data-idx="${i}" aria-pressed="${!!s.done}">
             <span class="check">${icon('check', 11, 3)}</span>
             <span class="step-label">${esc(s.t)}</span>
             <span class="step-date ${dateCls}">${esc(fmtDate(s.d))}</span>
-          </button></li>`;
+          </button><button type="button" class="icon-btn step-edit-btn" data-action="edit-step" data-id="${id}" data-idx="${i}" title="${esc(t('Edit step'))}" aria-label="${esc(t('Edit step {name}', { name: s.t }))}">${icon('pencil', 14)}</button></li>`;
         }).join('')}
       </ul>
       <form class="add-step" data-id="${id}" hidden>
@@ -229,6 +240,90 @@ function addStep(id, text, d) {
   renderTracker();
   renderChrome();
   pushApp(id);
+}
+
+let stepEdit = null;
+const stepKey = (s) => `${s.t}|${s.d}`;
+const isEditingStep = (id, s) => !!stepEdit && stepEdit.id === id && stepEdit.key === stepKey(s);
+
+function findStep(id, idx) {
+  const it = S.registered.find((r) => r.opportunity_id === id);
+  if (!it) return {};
+  const steps = it.steps_json || [];
+  let i = Number(idx);
+  if (stepEdit && stepEdit.id === id && (!steps[i] || stepKey(steps[i]) !== stepEdit.key)) i = steps.findIndex((s) => stepKey(s) === stepEdit.key);
+  return { it, i, step: steps[i] };
+}
+
+function leaveStepField() {
+  if (document.activeElement && $('#trackerList').contains(document.activeElement)) document.activeElement.blur();
+}
+
+function focusStepEdit() {
+  const form = $(`.step-edit[data-id="${CSS.escape(stepEdit ? stepEdit.id : '')}"]`);
+  if (form) form.elements.t.focus();
+}
+
+function editStep(id, idx) {
+  const it = S.registered.find((r) => r.opportunity_id === id);
+  const step = it && it.steps_json ? it.steps_json[Number(idx)] : null;
+  if (!step) return;
+  stepEdit = { id, key: stepKey(step) };
+  leaveStepField();
+  renderTracker();
+  focusStepEdit();
+}
+
+function cancelStepEdit() {
+  if (!stepEdit) return;
+  const id = stepEdit.id;
+  stepEdit = null;
+  leaveStepField();
+  renderTracker();
+  const btn = $(`.app-card[data-app="${CSS.escape(id)}"] [data-action="edit-step"]`);
+  if (btn) btn.focus();
+}
+
+function saveStep(id, idx, text, d) {
+  const { it, step } = findStep(id, idx);
+  if (!step) { stepEdit = null; leaveStepField(); renderTracker(); return; }
+  const name = String(text || '').trim().slice(0, LIMITS.stepText);
+  if (!name) { toast(t('Write a name for the step.'), { tone: 'warn' }); focusStepEdit(); return; }
+  if (!isIso(d)) { toast(t('Choose a date for the step.'), { tone: 'warn' }); return; }
+  step.t = name;
+  step.d = d;
+  it.steps_json.sort((a, b) => a.d.localeCompare(b.d));
+  if (d > (it.deadline || '')) it.deadline = d;
+  stepEdit = null;
+  leaveStepField();
+  renderTracker();
+  renderChrome();
+  pushApp(id);
+  toast(t('Step updated'), { tone: 'ok' });
+}
+
+function deleteStep(id, idx) {
+  const { it, i, step } = findStep(id, idx);
+  if (!step) return;
+  const [removed] = it.steps_json.splice(i, 1);
+  stepEdit = null;
+  leaveStepField();
+  renderTracker();
+  renderChrome();
+  pushApp(id);
+  toast(t('Deleted step {name}', { name: removed.t }), {
+    action: t('Undo'),
+    timeout: 6000,
+    onAction: () => {
+      const now = S.registered.find((r) => r.opportunity_id === id);
+      if (!now || now.steps_json.length >= LIMITS.steps) return;
+      now.steps_json.push(removed);
+      now.steps_json.sort((a, b) => a.d.localeCompare(b.d));
+      renderTracker();
+      renderChrome();
+      pushApp(id);
+    },
+  });
 }
 
 function setStatus(id, status) {

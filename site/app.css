@@ -1000,3 +1000,19 @@ img.logo { display: block; background: none; box-shadow: none; border-radius: 0;
   .feedback .modal-foot-row .btn { flex: 1; }
 }
 .fb-title, .fb-line, .fb-done { position: relative; z-index: 1; }
+.steps li { display: flex; align-items: center; }
+.steps li .step { flex: 1; min-width: 0; }
+.step-edit-btn { flex: none; margin-right: 4px; color: var(--text-3); }
+.step-edit-btn:hover { color: var(--text); }
+.steps li.step-edit-row { display: block; padding: 10px 12px; background: var(--surface-2); }
+.step-edit { display: flex; flex-wrap: wrap; gap: 8px; }
+.step-edit .input { flex: 1 1 180px; height: 34px; }
+.step-edit .input[type="date"] { flex: 0 1 160px; }
+.step-edit-actions { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.step-edit-actions .danger-text { margin-right: auto; }
+@media (max-width: 640px) {
+  .step-edit .input { height: 44px; flex-basis: 100%; }
+  .step-edit-actions .btn { flex: 1 1 auto; }
+  .step-edit-actions .danger-text { margin-right: 0; }
+  .step-edit-btn { margin-right: 0; }
+}
