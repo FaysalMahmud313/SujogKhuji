@@ -395,3 +395,11 @@ opportunity_bd/
 ├── docs/github-pages.yml       Optional GitHub Pages workflow
 └── .github/workflows/update-listings.yml   Twice-daily search
 ```
+
+## License
+
+The code is open source under the [MIT License](LICENSE): you may use, copy, change and share it, as long as you keep the copyright notice.
+
+- The name **SujogKhuji (সুযোগ খুঁজি)** and its logo (designed by Isratul Ibnat Orpa) are not covered by the MIT License. Please use your own name and logo if you run your own copy.
+- The Geist fonts in `site/fonts/` are under the SIL Open Font License; see [`site/fonts/OFL.txt`](site/fonts/OFL.txt).
+- Listings link to their original sources, which keep their own rights.
